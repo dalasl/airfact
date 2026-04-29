@@ -1,0 +1,4 @@
+method,precision_mean,precision_std,recall_mean,recall_std,F1_mean,F1_std,FPR_mean,FPR_std
+Microsoft Presidio,0.79,0.02,0.84,0.02,0.814,0.018,0.24,0.03
+Qwen2.5-7B Zero-shot,0.73,0.03,0.80,0.02,0.763,0.022,0.31,0.03
+Proposed,0.96,0.01,0.94,0.01,0.950,0.010,0.05,0.01

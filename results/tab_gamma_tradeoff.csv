@@ -1,0 +1,4 @@
+gamma,human_review_rate,precision_mean,precision_std,latency_s
+1.2,0.21,0.96,0.01,5.9
+1.5,0.14,0.95,0.01,5.8
+1.8,0.09,0.91,0.02,5.8

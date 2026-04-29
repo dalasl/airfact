@@ -1,0 +1,533 @@
+"""
+安全策略语料收集与整理
+
+整理来自 NIST SP 800-53、MITRE ATT&CK、Sigma Rules 等权威框架的
+安全策略描述，用于规则生成模块的质量评估。
+
+输出: data/policies/policies.jsonl (200 条)
+分布: NIST 71 条, ATT&CK 40 条, Sigma 30 条, 其他 30 条, 自建 29 条
+复杂度: 简单 70 / 中等 80 / 复杂 50
+"""
+
+import json
+import os
+from typing import Dict, List
+
+# ---- 策略模板 ----
+# 各来源的策略模板，每条包含：
+# - id: 策略编号
+# - source: 来源框架
+# - title: 策略标题
+# - description: 自然语言策略描述
+# - complexity: simple/medium/complex
+# - expected_subject: 预期主体约束
+# - expected_action: 预期动作
+# - expected_object: 预期客体
+# - expected_condition: 预期条件
+
+NIST_POLICIES = [
+    # AC - Access Control
+    {"id": "NIST-AC-2", "title": "账户管理", "complexity": "medium",
+     "description": "组织应定义并实施信息系统账户管理流程，包括账户的创建、启用、修改、禁用与删除，确保仅授权用户可访问系统资源。"},
+    {"id": "NIST-AC-3", "title": "访问实施", "complexity": "simple",
+     "description": "信息系统应强制实施经批准的授权策略，确保对系统资源的逻辑访问符合已定义的访问控制策略。"},
+    {"id": "NIST-AC-4", "title": "信息流实施", "complexity": "complex",
+     "description": "信息系统应强制实施经批准的信息流控制策略，控制系统内部及系统间的信息流向，防止未授权的信息传输与泄露。"},
+    {"id": "NIST-AC-6", "title": "最小特权", "complexity": "medium",
+     "description": "组织应采用最小特权原则，为用户和系统进程仅分配完成其指定任务所需的最小权限集合。"},
+    {"id": "NIST-AC-7", "title": "不成功的登录尝试", "complexity": "simple",
+     "description": "信息系统应限制连续无效登录尝试次数，超出阈值后自动锁定账户或延迟响应。"},
+    {"id": "NIST-AC-11", "title": "会话锁定", "complexity": "simple",
+     "description": "信息系统应在用户不活跃达到设定时间后自动锁定会话，要求重新认证后方可继续访问。"},
+    {"id": "NIST-AC-17", "title": "远程访问", "complexity": "medium",
+     "description": "组织应建立远程访问策略，规定远程连接的认证方式、加密要求与使用限制。"},
+    {"id": "NIST-AC-20", "title": "外部信息系统使用", "complexity": "medium",
+     "description": "组织应建立使用外部信息系统访问组织信息的条款和条件，并限制可通过外部系统访问的信息类型。"},
+    # AU - Audit
+    {"id": "NIST-AU-2", "title": "审计事件", "complexity": "medium",
+     "description": "组织应确定信息系统需要审计的事件类型，包括登录、文件访问、权限变更等关键操作。"},
+    {"id": "NIST-AU-3", "title": "审计记录内容", "complexity": "simple",
+     "description": "信息系统应生成包含事件类型、时间、来源、结果和身份标识的审计记录。"},
+    {"id": "NIST-AU-6", "title": "审计审查与分析", "complexity": "complex",
+     "description": "组织应定期审查和分析审计记录，识别不当或异常活动，并报告调查结果。"},
+    {"id": "NIST-AU-9", "title": "审计信息保护", "complexity": "medium",
+     "description": "信息系统应保护审计信息和审计工具免遭未经授权的访问、修改和删除。"},
+    {"id": "NIST-AU-12", "title": "审计生成", "complexity": "simple",
+     "description": "信息系统应在系统级别为已定义的可审计事件提供审计记录生成能力。"},
+    # CM - Configuration Management
+    {"id": "NIST-CM-2", "title": "基线配置", "complexity": "medium",
+     "description": "组织应建立并维护信息系统的当前基线配置和组件清单。"},
+    {"id": "NIST-CM-7", "title": "最少功能", "complexity": "simple",
+     "description": "组织应配置信息系统仅提供必要的功能，禁止或限制不必要的功能、端口、协议和服务。"},
+    # IA - Identification and Authentication
+    {"id": "NIST-IA-2", "title": "用户标识与认证", "complexity": "simple",
+     "description": "信息系统应唯一标识和认证组织用户或代表组织用户行事的进程。"},
+    {"id": "NIST-IA-4", "title": "标识符管理", "complexity": "medium",
+     "description": "组织应通过接收授权、指定标识符类型、防止标识符重用和在不活跃期后禁用来管理信息系统标识符。"},
+    {"id": "NIST-IA-5", "title": "认证器管理", "complexity": "complex",
+     "description": "组织应通过验证持有者身份、设定初始内容、确保足够强度、建立管理流程来管理信息系统认证器。"},
+    # IR - Incident Response
+    {"id": "NIST-IR-4", "title": "事件处理", "complexity": "complex",
+     "description": "组织应实施事件处理能力，包括准备、检测分析、遏制、根除与恢复阶段。"},
+    {"id": "NIST-IR-5", "title": "事件监测", "complexity": "medium",
+     "description": "组织应跟踪和记录信息安全事件。"},
+    {"id": "NIST-IR-6", "title": "事件报告", "complexity": "simple",
+     "description": "组织应要求人员在发现可疑安全事件时向组织事件响应团队报告。"},
+    # MP - Media Protection
+    {"id": "NIST-MP-2", "title": "介质访问", "complexity": "simple",
+     "description": "组织应限制对信息系统介质的访问，仅允许授权人员访问。"},
+    {"id": "NIST-MP-4", "title": "介质存储", "complexity": "medium",
+     "description": "组织应以安全方式物理控制和存储数字介质与非数字介质。"},
+    {"id": "NIST-MP-5", "title": "介质传输", "complexity": "complex",
+     "description": "组织应在信息系统介质传输期间对其进行保护和控制，并限制可传输的活动。"},
+    {"id": "NIST-MP-6", "title": "介质清理", "complexity": "medium",
+     "description": "组织应在处置、释出或重用信息系统介质前对其进行清理。"},
+    # PE - Physical and Environmental Protection
+    {"id": "NIST-PE-2", "title": "物理访问授权", "complexity": "simple",
+     "description": "组织应维护有权访问设施的人员名单，发放授权凭证，按需审查访问列表。"},
+    {"id": "NIST-PE-3", "title": "物理访问控制", "complexity": "medium",
+     "description": "组织应实施物理访问控制机制，控制进出信息系统所在设施的入口点。"},
+    # PS - Personnel Security
+    {"id": "NIST-PS-4", "title": "人员离职", "complexity": "complex",
+     "description": "组织应在人员离职时禁用信息系统访问权限，终止认证器和凭证，回收组织信息和财产。"},
+    {"id": "NIST-PS-5", "title": "人员调动", "complexity": "medium",
+     "description": "组织应在人员岗位变动时审查和确认其当前逻辑和物理访问授权的持续必要性。"},
+    # SC - System and Communications Protection
+    {"id": "NIST-SC-7", "title": "边界保护", "complexity": "complex",
+     "description": "信息系统应监控和控制系统外部边界和关键内部边界的通信，实施子网隔离。"},
+    {"id": "NIST-SC-8", "title": "传输机密性与完整性", "complexity": "medium",
+     "description": "信息系统应保护传输信息的机密性和完整性。"},
+    {"id": "NIST-SC-12", "title": "密码密钥管理", "complexity": "complex",
+     "description": "组织应建立并管理信息系统中使用的密码密钥。"},
+    {"id": "NIST-SC-13", "title": "密码保护", "complexity": "medium",
+     "description": "信息系统应按照法规和策略要求实施密码机制。"},
+    {"id": "NIST-SC-28", "title": "静态信息保护", "complexity": "medium",
+     "description": "信息系统应保护存储在信息系统上的信息的机密性和完整性。"},
+    # SI - System and Information Integrity
+    {"id": "NIST-SI-2", "title": "缺陷修复", "complexity": "medium",
+     "description": "组织应识别、报告和修正信息系统缺陷，在规定时限内安装安全相关的软件更新。"},
+    {"id": "NIST-SI-3", "title": "恶意代码防护", "complexity": "simple",
+     "description": "组织应在信息系统入口和出口实施恶意代码防护机制，并保持防护更新。"},
+    {"id": "NIST-SI-4", "title": "信息系统监控", "complexity": "complex",
+     "description": "组织应监控信息系统以检测攻击、未授权连接和系统误用，部署监控设备收集关键信息。"},
+    {"id": "NIST-SI-5", "title": "安全警报与通告", "complexity": "simple",
+     "description": "组织应持续接收信息系统安全警报和通告，并采取适当行动。"},
+    # 补充 NIST 策略至 ~70 条
+    {"id": "NIST-AC-8", "title": "系统使用通知", "complexity": "simple",
+     "description": "信息系统应在用户登录前显示系统使用通知，包括隐私和安全提醒。"},
+    {"id": "NIST-AC-10", "title": "并发会话控制", "complexity": "medium",
+     "description": "信息系统应限制每个用户账户的并发会话数，防止凭证共享和账户滥用。"},
+    {"id": "NIST-AC-12", "title": "会话终止", "complexity": "simple",
+     "description": "信息系统应在设定的不活跃时间后或用户请求时自动终止会话。"},
+    {"id": "NIST-AC-14", "title": "无标识认证的允许操作", "complexity": "simple",
+     "description": "组织应识别无需标识或认证即可执行的特定用户操作。"},
+    {"id": "NIST-AC-18", "title": "无线访问", "complexity": "medium",
+     "description": "组织应建立无线访问使用限制、配置要求和连接要求。"},
+    {"id": "NIST-AC-19", "title": "移动设备访问控制", "complexity": "complex",
+     "description": "组织应建立移动设备连接企业网络的使用限制和实施指南，包括设备认证和数据加密。"},
+    {"id": "NIST-AC-21", "title": "信息共享", "complexity": "medium",
+     "description": "组织应促进授权用户之间的信息共享，同时确保敏感信息仅在授权范围内传播。"},
+    {"id": "NIST-AC-22", "title": "公开内容", "complexity": "simple",
+     "description": "组织应指定有权发布公开信息的人员，并在发布前审查信息内容。"},
+    {"id": "NIST-AT-2", "title": "安全意识培训", "complexity": "simple",
+     "description": "组织应为信息系统用户提供基本的安全意识培训，作为初始培训和定期更新。"},
+    {"id": "NIST-AT-3", "title": "基于角色的安全培训", "complexity": "medium",
+     "description": "组织应为具有安全职责的人员提供基于角色的安全培训。"},
+    {"id": "NIST-AU-4", "title": "审计存储容量", "complexity": "simple",
+     "description": "组织应按照审计记录存储要求分配审计记录存储容量。"},
+    {"id": "NIST-AU-5", "title": "审计处理失败响应", "complexity": "medium",
+     "description": "信息系统应在审计处理失败时向管理员发出警报，并采取预定义的应急措施。"},
+    {"id": "NIST-AU-7", "title": "审计归约与报告", "complexity": "complex",
+     "description": "信息系统应提供审计归约和报告生成能力，支持按需分析和安全事件调查。"},
+    {"id": "NIST-AU-8", "title": "时间戳", "complexity": "simple",
+     "description": "信息系统应使用内部系统时钟为审计记录生成时间戳。"},
+    {"id": "NIST-AU-10", "title": "不可否认性", "complexity": "complex",
+     "description": "信息系统应保护审计信息的不可否认性，确保操作者无法否认其已执行的操作。"},
+    {"id": "NIST-AU-11", "title": "审计记录保留", "complexity": "medium",
+     "description": "组织应按照记录保留策略保留审计记录，以支持安全事件调查和合规要求。"},
+    {"id": "NIST-CA-2", "title": "安全评估", "complexity": "complex",
+     "description": "组织应制定安全评估计划，评估信息系统中安全控制的实施效果。"},
+    {"id": "NIST-CA-3", "title": "系统互连", "complexity": "complex",
+     "description": "组织应授权信息系统与其他系统之间的连接，并监控互连的安全性。"},
+    {"id": "NIST-CA-7", "title": "持续监控", "complexity": "complex",
+     "description": "组织应建立持续监控策略和程序，维持对信息系统安全状态的感知。"},
+    {"id": "NIST-CM-3", "title": "配置变更控制", "complexity": "complex",
+     "description": "组织应跟踪、审查、批准和记录对信息系统的配置变更。"},
+    {"id": "NIST-CM-5", "title": "变更访问限制", "complexity": "medium",
+     "description": "组织应定义并实施与信息系统变更相关的物理和逻辑访问限制。"},
+    {"id": "NIST-CM-6", "title": "配置设置", "complexity": "medium",
+     "description": "组织应建立并记录信息系统的配置设置，确保使用最具限制性的模式。"},
+    {"id": "NIST-CM-8", "title": "信息系统组件清单", "complexity": "medium",
+     "description": "组织应开发并维护信息系统组件清单，反映系统当前状态。"},
+    {"id": "NIST-CP-2", "title": "应急计划", "complexity": "complex",
+     "description": "组织应为信息系统制定应急计划，涵盖恢复目标和恢复优先级。"},
+    {"id": "NIST-CP-9", "title": "信息系统备份", "complexity": "medium",
+     "description": "组织应按照定义的频率对用户级和系统级信息进行备份。"},
+    {"id": "NIST-IA-6", "title": "认证器反馈", "complexity": "simple",
+     "description": "信息系统应在认证过程中模糊化认证信息的反馈，防止信息泄露。"},
+    {"id": "NIST-IA-8", "title": "外部用户标识与认证", "complexity": "medium",
+     "description": "信息系统应唯一标识和认证非组织用户或代表非组织用户行事的进程。"},
+    {"id": "NIST-MA-2", "title": "受控维护", "complexity": "medium",
+     "description": "组织应按照制造商规范安排、执行、记录和审查信息系统的维护活动。"},
+    {"id": "NIST-MA-4", "title": "非本地维护", "complexity": "complex",
+     "description": "组织应授权、监控和控制非本地维护活动，并在完成后终止相关连接。"},
+    {"id": "NIST-PL-2", "title": "系统安全计划", "complexity": "complex",
+     "description": "组织应为信息系统制定系统安全计划，描述系统边界、运行环境和安全控制。"},
+    {"id": "NIST-RA-3", "title": "风险评估", "complexity": "complex",
+     "description": "组织应对信息系统进行风险评估，识别威胁和脆弱性并确定风险等级。"},
+    {"id": "NIST-RA-5", "title": "脆弱性扫描", "complexity": "medium",
+     "description": "组织应定期扫描信息系统和应用程序中的脆弱性，并修复发现的问题。"},
+    {"id": "NIST-SA-4", "title": "采购流程", "complexity": "medium",
+     "description": "组织应在系统采购合同中包含安全功能、配置和文档的要求。"},
+]
+
+ATTACK_POLICIES = [
+    {"id": "ATK-T1005", "title": "本地系统数据收集", "complexity": "medium",
+     "description": "检测攻击者在本地系统上搜索并收集敏感文件的行为，包括扫描特定目录、按文件类型筛选和批量复制操作。"},
+    {"id": "ATK-T1020", "title": "自动化数据外传", "complexity": "complex",
+     "description": "检测攻击者使用自动化脚本或工具将收集的数据通过网络通道自动外传的行为。"},
+    {"id": "ATK-T1025", "title": "可移动介质数据外传", "complexity": "medium",
+     "description": "检测攻击者将敏感数据复制到可移动存储介质（如USB驱动器）进行物理外传的行为。"},
+    {"id": "ATK-T1030", "title": "数据传输大小限制", "complexity": "complex",
+     "description": "检测攻击者将外传数据分割为固定大小的块以规避数据量检测阈值的行为。"},
+    {"id": "ATK-T1039", "title": "网络共享驱动器数据收集", "complexity": "medium",
+     "description": "检测攻击者在网络共享驱动器上搜索并收集敏感文件的行为。"},
+    {"id": "ATK-T1041", "title": "C2通道数据外传", "complexity": "complex",
+     "description": "检测攻击者通过已建立的命令与控制通道将数据外传的行为。"},
+    {"id": "ATK-T1048", "title": "替代协议数据外传", "complexity": "complex",
+     "description": "检测攻击者使用非标准协议（如DNS隧道、ICMP隧道）进行数据外传的行为。"},
+    {"id": "ATK-T1052", "title": "物理介质数据外传", "complexity": "simple",
+     "description": "检测攻击者通过物理介质（USB设备、移动硬盘）将数据从目标网络中带出的行为。"},
+    {"id": "ATK-T1053", "title": "计划任务执行", "complexity": "medium",
+     "description": "检测攻击者利用操作系统计划任务功能实现持久化或定期执行恶意操作的行为。"},
+    {"id": "ATK-T1055", "title": "进程注入", "complexity": "complex",
+     "description": "检测攻击者将恶意代码注入到合法进程中以规避安全检测的行为。"},
+    {"id": "ATK-T1059", "title": "命令行解释器执行", "complexity": "simple",
+     "description": "检测攻击者使用命令行解释器（PowerShell、cmd、bash）执行恶意命令的行为。"},
+    {"id": "ATK-T1071", "title": "应用层协议C2通信", "complexity": "complex",
+     "description": "检测攻击者使用应用层协议（HTTP、HTTPS、DNS）建立命令与控制通信的行为。"},
+    {"id": "ATK-T1078", "title": "有效账户滥用", "complexity": "medium",
+     "description": "检测攻击者使用合法凭证访问系统和服务，绕过访问控制的行为。"},
+    {"id": "ATK-T1083", "title": "文件与目录发现", "complexity": "simple",
+     "description": "检测攻击者枚举文件系统上的文件和目录以发现敏感信息的行为。"},
+    {"id": "ATK-T1105", "title": "远程文件复制", "complexity": "medium",
+     "description": "检测攻击者将文件从外部系统复制到目标系统或从目标系统复制到外部的行为。"},
+    {"id": "ATK-T1119", "title": "自动化数据收集", "complexity": "complex",
+     "description": "检测攻击者使用自动化工具批量收集目标系统上的敏感信息的行为。"},
+    {"id": "ATK-T1132", "title": "数据编码", "complexity": "medium",
+     "description": "检测攻击者使用标准或自定义编码方案（Base64、异或等）对C2通信内容进行编码的行为。"},
+    {"id": "ATK-T1134", "title": "访问令牌操纵", "complexity": "complex",
+     "description": "检测攻击者操纵访问令牌以提升权限或冒充其他用户的行为。"},
+    {"id": "ATK-T1537", "title": "云存储数据外传", "complexity": "medium",
+     "description": "检测攻击者将数据上传到云存储服务（如AWS S3、Azure Blob）进行外传的行为。"},
+    {"id": "ATK-T1567", "title": "Web服务数据外传", "complexity": "medium",
+     "description": "检测攻击者使用合法的Web服务（如云存储、代码托管平台）作为数据外传通道的行为。"},
+    # 补充 ATT&CK 策略至 ~40 条
+    {"id": "ATK-T1087", "title": "账户发现", "complexity": "simple",
+     "description": "检测攻击者枚举本地或域账户信息以了解系统用户组成的行为。"},
+    {"id": "ATK-T1016", "title": "系统网络配置发现", "complexity": "simple",
+     "description": "检测攻击者查询网络配置信息（IP地址、DNS、路由表）以了解网络拓扑的行为。"},
+    {"id": "ATK-T1082", "title": "系统信息发现", "complexity": "simple",
+     "description": "检测攻击者收集操作系统版本、硬件信息和补丁状态等系统详细信息的行为。"},
+    {"id": "ATK-T1049", "title": "系统网络连接发现", "complexity": "simple",
+     "description": "检测攻击者使用netstat等工具查询当前网络连接和监听端口的行为。"},
+    {"id": "ATK-T1057", "title": "进程发现", "complexity": "simple",
+     "description": "检测攻击者列举系统运行进程以识别安全软件和关键服务的行为。"},
+    {"id": "ATK-T1047", "title": "WMI执行", "complexity": "medium",
+     "description": "检测攻击者通过Windows Management Instrumentation在本地或远程系统上执行命令的行为。"},
+    {"id": "ATK-T1562", "title": "削弱防御", "complexity": "complex",
+     "description": "检测攻击者禁用或修改安全工具（防火墙、EDR、日志服务）以规避检测的行为。"},
+    {"id": "ATK-T1036", "title": "伪装", "complexity": "medium",
+     "description": "检测攻击者通过修改文件名、路径或进程特征使恶意活动看似合法的行为。"},
+    {"id": "ATK-T1070", "title": "指标删除", "complexity": "complex",
+     "description": "检测攻击者删除或修改日志、时间戳和其他取证证据以消除入侵痕迹的行为。"},
+    {"id": "ATK-T1074", "title": "数据暂存", "complexity": "medium",
+     "description": "检测攻击者在外传前将收集的数据集中存放到临时暂存目录的行为。"},
+    {"id": "ATK-T1218", "title": "系统二进制代理执行", "complexity": "medium",
+     "description": "检测攻击者利用受信任的系统工具（rundll32、mshta、certutil）代理执行恶意代码的行为。"},
+    {"id": "ATK-T1003", "title": "操作系统凭证转储", "complexity": "complex",
+     "description": "检测攻击者从操作系统或软件中提取凭证哈希或明文密码的行为。"},
+    {"id": "ATK-T1021", "title": "远程服务利用", "complexity": "medium",
+     "description": "检测攻击者使用SMB、RDP、SSH等远程服务在内网横向移动的行为。"},
+    {"id": "ATK-T1027", "title": "混淆文件或信息", "complexity": "complex",
+     "description": "检测攻击者对恶意载荷进行编码、加密或打包以规避安全检测的行为。"},
+    {"id": "ATK-T1560", "title": "数据归档", "complexity": "medium",
+     "description": "检测攻击者在外传前使用压缩或加密工具打包收集到的敏感数据的行为。"},
+    {"id": "ATK-T1056", "title": "输入捕获", "complexity": "complex",
+     "description": "检测攻击者使用键盘记录器或API钩子捕获用户键盘输入以窃取凭证的行为。"},
+    {"id": "ATK-T1110", "title": "暴力破解", "complexity": "medium",
+     "description": "检测攻击者通过密码喷洒、字典攻击或凭证填充获取账户访问权限的行为。"},
+    {"id": "ATK-T1573", "title": "加密通道", "complexity": "complex",
+     "description": "检测攻击者使用加密协议建立隐蔽的命令与控制通信通道的行为。"},
+    {"id": "ATK-T1568", "title": "动态解析", "complexity": "complex",
+     "description": "检测攻击者使用DNS计算、域名生成算法或Fast-flux技术动态切换C2基础设施的行为。"},
+    {"id": "ATK-T1095", "title": "非应用层协议通信", "complexity": "medium",
+     "description": "检测攻击者使用ICMP、UDP等非应用层协议进行C2通信以规避应用层监控的行为。"},
+]
+
+SIGMA_POLICIES = [
+    {"id": "SIGMA-001", "title": "大量文件删除检测", "complexity": "simple",
+     "description": "当用户在短时间内删除大量文件时触发告警，可能指示数据销毁或掩盖痕迹。"},
+    {"id": "SIGMA-002", "title": "异常时段登录", "complexity": "simple",
+     "description": "检测在非工作时段（22:00-06:00）的用户登录行为。"},
+    {"id": "SIGMA-003", "title": "USB大容量存储设备插入", "complexity": "simple",
+     "description": "检测USB大容量存储设备的插入事件，记录设备标识和时间。"},
+    {"id": "SIGMA-004", "title": "敏感目录异常访问", "complexity": "medium",
+     "description": "检测对标记为敏感的目录（财务、人事、研发核心）的首次或异常访问模式。"},
+    {"id": "SIGMA-005", "title": "邮件大附件外发", "complexity": "medium",
+     "description": "检测通过邮件发送超过指定大小阈值的附件到外部邮箱的行为。"},
+    {"id": "SIGMA-006", "title": "云存储上传监控", "complexity": "medium",
+     "description": "检测向个人云存储服务上传文件的HTTP/HTTPS请求。"},
+    {"id": "SIGMA-007", "title": "进程注入检测", "complexity": "complex",
+     "description": "检测使用WriteProcessMemory或CreateRemoteThread等API进行进程注入的行为。"},
+    {"id": "SIGMA-008", "title": "PowerShell编码命令", "complexity": "medium",
+     "description": "检测使用-EncodedCommand参数执行Base64编码PowerShell命令的行为。"},
+    {"id": "SIGMA-009", "title": "可疑网络连接", "complexity": "complex",
+     "description": "检测到未知外部IP地址的出站连接，特别是使用非标准端口的连接。"},
+    {"id": "SIGMA-010", "title": "文件压缩与加密活动", "complexity": "medium",
+     "description": "检测使用7zip、WinRAR等工具对大量文件进行压缩加密的行为，可能是数据外传前的准备。"},
+    {"id": "SIGMA-011", "title": "计划任务创建", "complexity": "simple",
+     "description": "检测新的计划任务创建事件，分析任务执行内容是否涉及数据收集或外传。"},
+    {"id": "SIGMA-012", "title": "注册表自启动项修改", "complexity": "medium",
+     "description": "检测对注册表自启动项（Run/RunOnce）的修改，识别持久化行为。"},
+    # 补充 Sigma 策略至 ~30 条
+    {"id": "SIGMA-013", "title": "剪贴板数据获取", "complexity": "simple",
+     "description": "检测进程读取系统剪贴板内容的行为，识别凭证或敏感文本窃取。"},
+    {"id": "SIGMA-014", "title": "打印机输出监控", "complexity": "simple",
+     "description": "检测敏感文档的打印操作，记录打印文件名、页数和目标打印机。"},
+    {"id": "SIGMA-015", "title": "屏幕截图捕获", "complexity": "simple",
+     "description": "检测进程调用屏幕截图API或生成截图文件的行为。"},
+    {"id": "SIGMA-016", "title": "远程桌面登录", "complexity": "simple",
+     "description": "检测通过RDP协议的远程登录事件，记录来源IP和登录时间。"},
+    {"id": "SIGMA-017", "title": "服务创建检测", "complexity": "simple",
+     "description": "检测新的Windows服务创建事件，分析服务路径是否指向可疑二进制文件。"},
+    {"id": "SIGMA-018", "title": "异常父子进程关系", "complexity": "complex",
+     "description": "检测不符合常规的进程父子关系，如Office进程派生cmd或PowerShell子进程。"},
+    {"id": "SIGMA-019", "title": "DNS隧道检测", "complexity": "complex",
+     "description": "检测DNS查询中的异常特征，包括超长子域名、高频查询和非标准记录类型。"},
+    {"id": "SIGMA-020", "title": "LSASS进程访问", "complexity": "complex",
+     "description": "检测非授权进程访问LSASS进程内存的行为，识别凭证转储攻击。"},
+    {"id": "SIGMA-021", "title": "WMI持久化检测", "complexity": "medium",
+     "description": "检测通过WMI事件订阅建立持久化机制的行为，包括事件过滤器和消费者创建。"},
+    {"id": "SIGMA-022", "title": "文件权限异常修改", "complexity": "medium",
+     "description": "检测对关键系统文件或敏感目录权限的异常修改，识别权限提升准备行为。"},
+    {"id": "SIGMA-023", "title": "网络扫描行为", "complexity": "medium",
+     "description": "检测内网端口扫描和主机发现行为，包括ARP扫描和TCP SYN探测。"},
+    {"id": "SIGMA-024", "title": "可疑脚本下载执行", "complexity": "medium",
+     "description": "检测从外部URL下载脚本并立即执行的行为，包括PowerShell IEX和certutil下载。"},
+    {"id": "SIGMA-025", "title": "防火墙规则修改", "complexity": "simple",
+     "description": "检测Windows防火墙规则的创建、修改或删除操作。"},
+    {"id": "SIGMA-026", "title": "蓝牙设备连接", "complexity": "simple",
+     "description": "检测蓝牙文件传输设备的配对和连接事件，识别无线数据外传通道。"},
+    {"id": "SIGMA-027", "title": "共享文件夹创建", "complexity": "simple",
+     "description": "检测新的网络共享文件夹创建事件，分析共享权限是否过于宽泛。"},
+    {"id": "SIGMA-028", "title": "证书异常操作", "complexity": "medium",
+     "description": "检测对系统证书存储的异常操作，包括导入自签名证书和删除受信根证书。"},
+    {"id": "SIGMA-029", "title": "影子副本删除", "complexity": "complex",
+     "description": "检测删除系统卷影副本的行为，通常是勒索软件攻击或反取证操作的标志。"},
+    {"id": "SIGMA-030", "title": "多因素认证绕过", "complexity": "medium",
+     "description": "检测可能绕过多因素认证的异常登录模式，包括MFA疲劳攻击和会话劫持。"},
+]
+
+OTHER_POLICIES = [
+    {"id": "CIS-001", "title": "CIS控件-资产清单", "complexity": "simple",
+     "description": "维护硬件资产清单，确保仅授权设备可接入企业网络。"},
+    {"id": "CIS-002", "title": "CIS控件-软件清单", "complexity": "medium",
+     "description": "维护软件资产清单，确保仅授权软件可在企业设备上运行，检测未授权安装。"},
+    {"id": "CIS-003", "title": "CIS控件-数据保护", "complexity": "complex",
+     "description": "建立数据分类方案，对敏感数据实施加密、访问控制和传输保护措施。"},
+    {"id": "CIS-004", "title": "CIS控件-安全配置", "complexity": "medium",
+     "description": "建立并维护硬件和软件的安全配置标准，定期审计配置偏差。"},
+    {"id": "CIS-005", "title": "CIS控件-账户管理", "complexity": "simple",
+     "description": "使用流程和工具管理授权用户的账户凭证生命周期。"},
+    {"id": "ISO-001", "title": "ISO27001-A.8信息分类", "complexity": "medium",
+     "description": "信息应按其对组织的价值、法律要求、敏感性和关键性进行分类标注。"},
+    {"id": "ISO-002", "title": "ISO27001-A.9访问控制", "complexity": "complex",
+     "description": "实施基于业务和安全要求的访问控制策略，限制对信息和信息处理设施的访问。"},
+    {"id": "DSL-001", "title": "数据安全法-数据分级", "complexity": "medium",
+     "description": "根据数据在经济社会发展中的重要程度以及一旦遭到篡改、泄露等可能造成的危害程度进行分级保护。"},
+    {"id": "DSL-002", "title": "数据安全法-风险监测", "complexity": "complex",
+     "description": "建立数据安全风险监测机制，加强数据安全风险信息的获取、分析和研判。"},
+    {"id": "PIPL-001", "title": "个保法-最小必要原则", "complexity": "simple",
+     "description": "处理个人信息应当具有明确、合理的目的，且应限于实现处理目的的最小范围。"},
+    # 补充其他来源策略至 ~30 条
+    {"id": "CIS-006", "title": "CIS控件-邮件与浏览器防护", "complexity": "simple",
+     "description": "确保仅使用完全受支持的邮件客户端和浏览器，配置安全设置阻止不必要的插件和脚本。"},
+    {"id": "CIS-007", "title": "CIS控件-恶意软件防御", "complexity": "simple",
+     "description": "在所有终端部署并维护反恶意软件解决方案，启用实时保护和自动更新。"},
+    {"id": "CIS-008", "title": "CIS控件-数据恢复", "complexity": "simple",
+     "description": "建立定期数据备份流程，确保关键数据可在灾难或勒索事件后恢复。"},
+    {"id": "CIS-009", "title": "CIS控件-网络端口控制", "complexity": "medium",
+     "description": "管理网络端口、协议和服务的运行使用，关闭不必要的网络端口减少攻击面。"},
+    {"id": "CIS-010", "title": "CIS控件-安全日志管理", "complexity": "medium",
+     "description": "收集、管理和分析安全审计日志，确保日志完整性和足够的保留时间。"},
+    {"id": "ISO-003", "title": "ISO27001-A.12运营安全", "complexity": "medium",
+     "description": "实施运营规程和责任，确保信息处理设施的安全运营，包括变更管理和容量规划。"},
+    {"id": "ISO-004", "title": "ISO27001-A.13通信安全", "complexity": "medium",
+     "description": "保护网络中传输信息的安全，管理网络服务的安全性，包括网络隔离和信息传输策略。"},
+    {"id": "ISO-005", "title": "ISO27001-A.14系统开发安全", "complexity": "complex",
+     "description": "将安全要求融入信息系统的开发和采购过程，实施安全开发策略和测试流程。"},
+    {"id": "ISO-006", "title": "ISO27001-A.16事件管理", "complexity": "medium",
+     "description": "确保采用一致有效的方法管理信息安全事件，包括事件的报告、评估和响应。"},
+    {"id": "ISO-007", "title": "ISO27001-A.18合规性", "complexity": "complex",
+     "description": "避免违反法律、法规或合同义务中的信息安全要求，确保符合组织安全策略。"},
+    {"id": "DSL-003", "title": "数据安全法-数据处理活动", "complexity": "simple",
+     "description": "数据处理者应当建立健全全流程数据安全管理制度，保障数据安全。"},
+    {"id": "DSL-004", "title": "数据安全法-重要数据保护", "complexity": "medium",
+     "description": "对重要数据的处理者应当设置数据安全负责人和管理机构，定期开展风险评估。"},
+    {"id": "DSL-005", "title": "数据安全法-跨境传输", "complexity": "simple",
+     "description": "重要数据的出境安全管理应依法进行安全评估，未经批准不得向境外提供。"},
+    {"id": "PIPL-002", "title": "个保法-知情同意", "complexity": "simple",
+     "description": "处理个人信息应当取得个人的同意，并以显著方式告知处理目的和方式。"},
+    {"id": "PIPL-003", "title": "个保法-敏感信息保护", "complexity": "simple",
+     "description": "处理敏感个人信息应当取得个人的单独同意，并采取严格保护措施。"},
+    {"id": "PIPL-004", "title": "个保法-跨境提供", "complexity": "simple",
+     "description": "向境外提供个人信息应当通过安全评估或取得专业机构认证。"},
+    {"id": "PIPL-005", "title": "个保法-权利保障", "complexity": "simple",
+     "description": "保障个人对其个人信息行使查阅、复制、更正、删除等权利的渠道。"},
+    {"id": "PIPL-006", "title": "个保法-自动化决策", "complexity": "simple",
+     "description": "通过自动化决策方式处理个人信息应当保证决策透明度和公正合理。"},
+    {"id": "MLPS-001", "title": "等保2.0-安全通信网络", "complexity": "simple",
+     "description": "应保证通信网络的可用性，采用密码技术保证通信过程中数据的完整性和保密性。"},
+    {"id": "MLPS-002", "title": "等保2.0-安全计算环境", "complexity": "medium",
+     "description": "应对登录用户进行身份标识和鉴别，实现访问控制和安全审计，保障数据完整性和保密性。"},
+]
+
+CUSTOM_POLICIES = [
+    {"id": "CUST-001", "title": "终端文件外发监控", "complexity": "simple",
+     "description": "当终端用户通过任何通道（邮件、云盘、USB、IM）外发敏感等级L3及以上的文件时，系统应生成告警并记录完整操作链。"},
+    {"id": "CUST-002", "title": "跨角色文档访问检测", "complexity": "medium",
+     "description": "当用户访问的文档敏感等级超出其角色画像中的常规访问范围时，系统应评估偏离程度并在三维偏离度超过阈值时触发告警。"},
+    {"id": "CUST-003", "title": "非工作时段敏感操作", "complexity": "medium",
+     "description": "在非工作时段（22:00-06:00及节假日），对L2及以上敏感文件的任何写入、复制或外发操作应降低告警阈值。"},
+    {"id": "CUST-004", "title": "批量文件操作检测", "complexity": "medium",
+     "description": "当用户在30分钟滑动窗口内对10份以上不同敏感文件执行读取操作时，触发数据收集行为告警。"},
+    {"id": "CUST-005", "title": "角色迁移过渡期监控", "complexity": "complex",
+     "description": "用户角色变更后的14天内启用增强监控模式，降低所有通道的告警阈值，对新旧角色权限交叉区域的操作执行双重验证。"},
+    {"id": "CUST-006", "title": "IM进程文件传输检测", "complexity": "medium",
+     "description": "当即时通讯客户端进程读取或加载已标注L2及以上敏感等级的本地文件时，判定为潜在高风险外传行为并触发告警。"},
+    {"id": "CUST-007", "title": "USB设备白名单管控", "complexity": "simple",
+     "description": "仅允许企业注册的USB存储设备接入终端，未注册设备插入时立即阻断并告警。"},
+    {"id": "CUST-008", "title": "云盘上传域名管控", "complexity": "simple",
+     "description": "禁止向非白名单域名的云存储服务上传文件，白名单仅包含企业授权的云存储平台。"},
+    {"id": "CUST-009", "title": "文档水印与溯源标记", "complexity": "complex",
+     "description": "对L3及以上敏感文档在打开时自动嵌入不可见数字水印，包含用户标识、时间戳与终端信息，支持泄露后溯源。"},
+    {"id": "CUST-010", "title": "多通道关联检测", "complexity": "complex",
+     "description": "当同一用户在2小时时间窗口内通过两种以上不同通道操作相同或相似的敏感文件时，系统应自动提升风险等级并触发联合告警。"},
+    # 补充自建终端策略至 ~30 条
+    {"id": "CUST-011", "title": "剪贴板敏感内容检测", "complexity": "simple",
+     "description": "当终端剪贴板中出现符合敏感数据模式（身份证号、银行卡号、密钥片段）的内容时，记录并告警。"},
+    {"id": "CUST-012", "title": "离职员工账户监控", "complexity": "simple",
+     "description": "员工提交离职申请后立即启用增强监控模式，记录所有文件操作和外发行为。"},
+    {"id": "CUST-013", "title": "打印通道管控", "complexity": "simple",
+     "description": "对L3及以上敏感文件的打印操作实施审批机制，打印时自动添加包含操作者信息的物理水印。"},
+    {"id": "CUST-014", "title": "远程会议屏幕共享监控", "complexity": "medium",
+     "description": "当用户在远程会议中共享屏幕且前台窗口包含L3及以上敏感文件时，触发屏幕分享风险告警。"},
+    {"id": "CUST-015", "title": "终端截屏行为检测", "complexity": "simple",
+     "description": "检测终端用户对包含敏感文件内容的窗口执行截屏操作的行为。"},
+    {"id": "CUST-016", "title": "加密文件异常创建", "complexity": "medium",
+     "description": "检测用户使用加密工具创建加密压缩包或加密文件的行为，特别关注内含敏感文件的加密操作。"},
+    {"id": "CUST-017", "title": "网络代理和VPN使用检测", "complexity": "medium",
+     "description": "检测终端使用未授权代理或VPN工具绕过网络监控的行为。"},
+    {"id": "CUST-018", "title": "文件重命名伪装检测", "complexity": "simple",
+     "description": "检测用户将敏感文件扩展名修改为非敏感类型以规避外发检测的行为。"},
+    {"id": "CUST-019", "title": "邮件密送外部地址检测", "complexity": "simple",
+     "description": "检测邮件包含密送至外部域名收件人且携带附件的行为。"},
+    {"id": "CUST-020", "title": "终端软件安装管控", "complexity": "simple",
+     "description": "检测并阻止用户安装未经企业授权的软件，特别是远程控制和文件同步类工具。"},
+    {"id": "CUST-021", "title": "工作时间异常数据量", "complexity": "medium",
+     "description": "当用户单日访问或下载的数据量超过其角色30日均值的3倍标准差时触发异常告警。"},
+    {"id": "CUST-022", "title": "敏感文件碎片化外传", "complexity": "complex",
+     "description": "检测用户将单个敏感文件拆分为多个片段，分批次通过不同通道外传以规避单次传输检测的行为。"},
+    {"id": "CUST-023", "title": "共享文件夹权限滥用", "complexity": "simple",
+     "description": "检测用户访问其职责范围外的共享文件夹并批量下载文件的行为。"},
+    {"id": "CUST-024", "title": "移动端同步检测", "complexity": "simple",
+     "description": "检测企业文件通过移动设备同步应用同步到个人设备的行为。"},
+    {"id": "CUST-025", "title": "办公时段外批量操作", "complexity": "medium",
+     "description": "检测在节假日或深夜时段对敏感文件执行批量读取、复制或移动操作的行为。"},
+    {"id": "CUST-026", "title": "终端外设白名单管理", "complexity": "simple",
+     "description": "仅允许企业注册的外部存储设备和外设接入终端，未注册设备一律阻断。"},
+    {"id": "CUST-027", "title": "API调用异常检测", "complexity": "simple",
+     "description": "检测内部API接口被异常频率调用或单次返回大量敏感数据的行为。"},
+    {"id": "CUST-028", "title": "终端离线状态检测", "complexity": "simple",
+     "description": "检测终端长时间处于离线状态后重新上线的行为，审查离线期间的操作日志。"},
+    {"id": "CUST-029", "title": "数据库导出监控", "complexity": "simple",
+     "description": "检测用户通过数据库管理工具执行大批量数据导出操作并保存为本地文件的行为。"},
+]
+
+
+def collect_policies(
+    output_dir: str = "data/policies",
+) -> str:
+    """整合所有来源的安全策略并输出为 JSONL
+
+    Returns:
+        生成的 policies.jsonl 路径
+    """
+    os.makedirs(output_dir, exist_ok=True)
+
+    all_policies = []
+
+    # 各来源策略
+    sources = [
+        ("NIST SP 800-53", NIST_POLICIES),
+        ("MITRE ATT&CK", ATTACK_POLICIES),
+        ("Sigma Rules", SIGMA_POLICIES),
+        ("CIS/ISO/国内法规", OTHER_POLICIES),
+        ("自建终端策略", CUSTOM_POLICIES),
+    ]
+
+    for source_name, policies in sources:
+        for p in policies:
+            record = {
+                "policy_id": p["id"],
+                "source": source_name,
+                "title": p["title"],
+                "description": p["description"],
+                "complexity": p["complexity"],
+            }
+            all_policies.append(record)
+
+    # 写入 JSONL
+    output_path = os.path.join(output_dir, "policies.jsonl")
+    with open(output_path, "w", encoding="utf-8") as f:
+        for record in all_policies:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    # 统计
+    by_source = {}
+    by_complexity = {}
+    for p in all_policies:
+        by_source[p["source"]] = by_source.get(p["source"], 0) + 1
+        by_complexity[p["complexity"]] = by_complexity.get(p["complexity"], 0) + 1
+
+    print(f"[安全策略语料] 整理完成:")
+    print(f"  总计: {len(all_policies)} 条")
+    print(f"  来源分布: {by_source}")
+    print(f"  复杂度分布: {by_complexity}")
+    print(f"  输出文件: {output_path}")
+
+    # 写入汇总
+    summary_path = os.path.join(output_dir, "summary.json")
+    with open(summary_path, "w", encoding="utf-8") as f:
+        json.dump({
+            "total": len(all_policies),
+            "by_source": by_source,
+            "by_complexity": by_complexity,
+        }, f, ensure_ascii=False, indent=2)
+
+    return output_path
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="安全策略语料收集")
+    parser.add_argument(
+        "--output-dir",
+        default="data/policies",
+        help="输出目录",
+    )
+    args = parser.parse_args()
+
+    collect_policies(output_dir=args.output_dir)

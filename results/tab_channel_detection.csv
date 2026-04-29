@@ -1,0 +1,6 @@
+channel,static_prec,static_FPR,deberta_prec,deberta_FPR,proposed_prec,proposed_FPR
+Email,0.603,0.305,0.859,0.084,0.921,0.052
+HTTP/Cloud,0.603,0.341,0.879,0.078,0.958,0.028
+USB/Device,0.694,0.246,0.911,0.054,0.979,0.016
+IM,0.513,0.480,0.693,0.260,0.854,0.120
+Overall,0.623,0.313,0.835,0.113,0.938,0.044

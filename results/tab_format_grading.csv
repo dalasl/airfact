@@ -1,0 +1,4 @@
+method,PDF_F1_mean,PDF_F1_std,Office_F1_mean,Office_F1_std,Watermark_F1_mean,Watermark_F1_std,Scanned_F1_mean,Scanned_F1_std
+Microsoft Presidio,0.85,0.02,0.83,0.02,0.78,0.03,0.71,0.04
+Qwen2.5-7B Zero-shot,0.81,0.03,0.78,0.03,0.72,0.04,0.64,0.05
+Proposed,0.97,0.01,0.96,0.01,0.93,0.02,0.90,0.03

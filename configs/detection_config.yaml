@@ -1,0 +1,101 @@
+# ============================================
+# 第4章：检测规则生成与执行模块配置
+# ============================================
+
+# --- 四元组中间表示 ---
+quadruple_ir:
+  components:
+    subject: ["role", "department", "project", "clearance"]
+    object: ["type", "path", "sensitivity"]
+    action: ["read", "write", "copy", "upload", "download", "print", "send"]
+    context: ["time", "location", "device", "network"]
+
+# --- 语法约束解码（DFA） ---
+constrained_decoding:
+  dfa:
+    states: 1200                # DFA 状态数
+    transition_table_mb: 15     # 状态转移表大小
+    construction: "thompson_subset"  # Thompson 构造 + 子集构造
+  token_feasibility_cache: true
+  max_backtrack_depth: 50       # 最大回溯深度
+
+# --- 模板库 ---
+template_library:
+  total_templates: 86
+  categories:
+    file_monitoring: 28         # 文件监控模板
+    network_exfiltration: 22    # 网络外泄模板
+    peripheral_control: 18      # 外设控制模板
+    compound_conditions: 18     # 复合条件模板
+  coverage_rate: 0.935          # 200 条策略覆盖率
+  resource_budget:
+    max_memory_kb: 12
+    max_instructions: 850
+
+# --- Z3 形式化验证 ---
+z3_verification:
+  timeout_ms: 5000              # 求解器超时
+  top_k: 5                     # 候选模板数
+  hoare_triple: true            # 启用 Hoare 三元组验证
+
+# --- 模板合成评分权重 ---
+template_scoring:
+  alpha: 0.4                    # 主体匹配权重
+  beta: 0.4                     # 客体匹配权重
+  gamma: 0.2                    # 资源效率权重
+
+# --- 场景自适应决策 ---
+adaptive_decision:
+  risk_weights:
+    alpha: 0.35                 # 主体一致性权重
+    beta: 0.40                  # 行为偏离权重
+    gamma: 0.25                 # 环境可信度权重
+  thresholds:
+    theta_1_ratio: 0.6          # θ_1 = 0.6 × θ_2
+    theta_2_method: "youden_j"  # ROC 约登指数
+  whitelist:
+    theta_wl: 0.8               # 主体一致性白名单阈值
+    theta_norm: 1.5             # 行为正常偏差阈值
+    ttl_hours: 24               # 白名单 TTL
+  profile_baseline:
+    eta: 0.15                   # EMA 学习率
+    distribution: "gaussian"     # 高斯过程模型
+
+# --- 三级响应动作 ---
+response_actions:
+  low_risk: "silent_monitoring"   # R(a) < θ_1
+  medium_risk: "alert"            # θ_1 ≤ R(a) < θ_2
+  high_risk: "block"              # R(a) ≥ θ_2
+
+# --- VQL / Velociraptor ---
+# VQL 规则由 ch4 VQLCompiler 生成，通过 velociraptor_bridge.py
+# 封装为 Artifact 下发到 Velociraptor (Go) 执行。
+# 源码参考: velociraptor-master/actions/vql.go (VQLClientAction.StartQuery)
+vql:
+  syntax_checker: true
+  velociraptor_version: "0.73.3"
+  artifact_deploy: true
+  # gRPC 接口 (velociraptor-master/api/proto/api.proto):
+  #   rpc Query(VQLCollectorArgs) returns (stream VQLResponse) {}
+  #   rpc CollectArtifact(ArtifactCollectorArgs) returns (ArtifactCollectorResponse) {}
+  #   rpc SetClientMonitoringState(ClientEventTable) returns (Empty) {}
+  # 消息定义 (velociraptor-master/actions/proto/vql.proto):
+  #   VQLCollectorArgs → 包含 VQLRequest[] + VQLEnv[] + timeout
+  #   VQLResponse → 包含 JSONL 编码结果行
+
+# --- 规则生命周期管理 ---
+rule_lifecycle:
+  version_format: "major.minor.patch"
+  cooldown_hours: 24            # 同一规则最大更新频率
+  max_updates_per_day: 2
+  knowledge_graph: true         # 规则知识图谱
+
+# --- 实验配置 ---
+experiment:
+  policy_count: 200             # 安全策略总数
+  generations_per_method: 5     # 每方法每策略生成次数
+  total_generations: 3000       # 总生成次数
+  complexity_distribution:
+    simple: 70                  # 单条件
+    medium: 80                  # 2-3 条件
+    complex: 50                 # 多条件嵌套

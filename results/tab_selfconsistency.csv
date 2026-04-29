@@ -1,0 +1,6 @@
+T,precision_mean,precision_std,consistency_mean,consistency_std,boundary_detection_mean,boundary_detection_std,latency_s
+1,0.90,0.02,,,,,1.2
+3,0.93,0.01,0.84,0.03,0.71,0.04,3.5
+5,0.95,0.01,0.91,0.02,0.86,0.03,5.8
+7,0.96,0.01,0.93,0.02,0.89,0.02,8.1
+9,0.96,0.01,0.94,0.01,0.90,0.02,10.5

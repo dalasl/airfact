@@ -1,0 +1,27 @@
+{
+  "total_anomaly": 380,
+  "total_normal": 550,
+  "by_channel": {
+    "email": {
+      "anomaly": 100,
+      "normal": 150
+    },
+    "http": {
+      "anomaly": 95,
+      "normal": 140
+    },
+    "usb": {
+      "anomaly": 95,
+      "normal": 140
+    },
+    "im": {
+      "anomaly": 90,
+      "normal": 120
+    }
+  },
+  "by_difficulty": {
+    "hard": 149,
+    "easy": 96,
+    "medium": 135
+  }
+}

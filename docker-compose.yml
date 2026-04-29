@@ -1,0 +1,210 @@
+# ============================================
+# 基于用户数据特征画像的终端数据泄露检测方法
+# Docker Compose 编排配置
+# ============================================
+#
+# 架构：
+#   ┌─────────────┐  ┌──────────────┐  ┌────────────────┐
+#   │  dlp-server  │  │ velociraptor │  │  tensorboard   │
+#   │ (主检测服务) │  │ (VQL 执行端) │  │ (实验可视化)   │
+#   └──────┬───────┘  └──────┬───────┘  └────────────────┘
+#          │                 │
+#     ┌────▼─────────────────▼────┐
+#     │       dlp-network         │
+#     └───────────────────────────┘
+#
+# 使用方式：
+#   docker-compose up -d              # 启动所有服务
+#   docker-compose up dlp-server      # 仅启动检测服务
+#   docker-compose run dlp-server python main.py demo  # 运行演示
+#   docker-compose logs -f dlp-server # 查看日志
+#   docker-compose down               # 停止并清理
+
+version: "3.8"
+
+services:
+  # ==================================================
+  # 主检测服务（感知层 + 认知层 + 执行层）
+  # ==================================================
+  dlp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: dlp-detection:latest
+    container_name: dlp-server
+    restart: unless-stopped
+
+    # GPU 支持（RTX 3090）
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+        limits:
+          memory: 16G
+          cpus: "8"
+
+    volumes:
+      # 数据目录（只读挂载原始数据）
+      - ./data:/app/data:ro
+      # 模型权重
+      - ./models:/app/models:ro
+      # 实验结果（可写）
+      - ./experiments:/app/experiments
+      # 配置文件
+      - ./configs:/app/configs:ro
+      # 日志输出
+      - dlp-logs:/app/logs
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CUDA_VISIBLE_DEVICES=0
+      - DLP_CONFIG_PATH=/app/configs/default_config.yaml
+      - DLP_LOG_LEVEL=INFO
+      - DLP_DEVICE=cuda
+      # LLM 推理配置
+      - LLM_MODEL_PATH=/app/models/qwen2.5-7b-gptq-int4
+      - LLM_MAX_LENGTH=4096
+      - LLM_BATCH_SIZE=1
+      # FAISS 向量库
+      - FAISS_INDEX_PATH=/app/data/processed/faiss_index
+
+    ports:
+      - "8080:8080"    # API 端口
+      - "50051:50051"  # gRPC 端口（终端代理通信）
+
+    networks:
+      - dlp-network
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import torch; assert torch.cuda.is_available()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    command: >
+      python main.py demo
+      --config /app/configs/default_config.yaml
+
+  # ==================================================
+  # Velociraptor Server（VQL 执行引擎）
+  #
+  # 源码位于 velociraptor-master/（Go 语言）
+  # 职责：接收 Python 流水线通过 gRPC 下发的 VQL 规则，
+  #       分发到终端客户端执行，回收检测结果。
+  #
+  # 集成链路：
+  #   ch4 VQLCompiler → VelociraptorBridge(gRPC)
+  #     → Velociraptor Server → Velociraptor Client
+  #     → actions/vql.go VQLClientAction.StartQuery()
+  #     → 文件系统/进程/网络检测 → 结果回传
+  # ==================================================
+  velociraptor:
+    image: velocidex/velociraptor:latest
+    container_name: velociraptor-server
+    restart: unless-stopped
+
+    volumes:
+      - velo-data:/opt/velociraptor/data
+      - velo-config:/opt/velociraptor/config
+      # 挂载本地源码（仅开发调试用）
+      - ./velociraptor-master:/opt/velociraptor/src:ro
+
+    ports:
+      - "8889:8889"    # Web UI
+      - "8001:8001"    # Frontend (客户端通信)
+
+    networks:
+      - dlp-network
+
+    depends_on:
+      - dlp-server
+
+    profiles:
+      - full    # 仅在 --profile full 时启动
+
+  # ==================================================
+  # TensorBoard（实验可视化）
+  # ==================================================
+  tensorboard:
+    image: tensorflow/tensorflow:latest
+    container_name: dlp-tensorboard
+    restart: unless-stopped
+
+    volumes:
+      - ./experiments/logs:/logs:ro
+
+    ports:
+      - "6006:6006"
+
+    command: tensorboard --logdir=/logs --bind_all --port=6006
+
+    networks:
+      - dlp-network
+
+    profiles:
+      - monitoring    # 仅在 --profile monitoring 时启动
+
+  # ==================================================
+  # 实验运行器（批量实验）
+  # ==================================================
+  experiment-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dlp-experiments
+    restart: "no"
+
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+        limits:
+          memory: 32G
+
+    volumes:
+      - ./data:/app/data:ro
+      - ./models:/app/models:ro
+      - ./experiments:/app/experiments
+      - ./configs:/app/configs:ro
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - CUDA_VISIBLE_DEVICES=0,1
+      - DLP_CONFIG_PATH=/app/configs/default_config.yaml
+
+    command: >
+      python scripts/run_all_experiments.py
+      --config /app/configs/default_config.yaml
+      --output /app/experiments/results
+
+    networks:
+      - dlp-network
+
+    profiles:
+      - experiment    # 仅在 --profile experiment 时启动
+
+# ==================================================
+# 网络
+# ==================================================
+networks:
+  dlp-network:
+    driver: bridge
+    name: dlp-detection-net
+
+# ==================================================
+# 持久化卷
+# ==================================================
+volumes:
+  dlp-logs:
+    name: dlp-detection-logs
+  velo-data:
+    name: velociraptor-data
+  velo-config:
+    name: velociraptor-config

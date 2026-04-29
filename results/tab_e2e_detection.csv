@@ -1,0 +1,4 @@
+method,precision,recall,FPR,F1
+Static Rules,0.623,0.748,0.313,0.679
+DeBERTa+Static Rules,0.835,0.826,0.113,0.830
+Proposed,0.938,0.947,0.044,0.942

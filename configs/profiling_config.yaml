@@ -1,0 +1,92 @@
+# ============================================
+# 第2章：用户画像构建模块配置
+# ============================================
+
+# --- U-Net 抗噪模型 ---
+unet:
+  channels: [64, 128, 256, 512]
+  kernel_size: 3
+  pool_size: 2
+  params: 1200000  # ~1.2M
+  loss:
+    alpha: 0.7            # MSE 与 SSIM 平衡系数
+  training:
+    epochs: 100
+    batch_size: 16
+    learning_rate: 0.001
+    train_pairs: 5000
+    val_pairs: 500
+    augmentation:
+      gaussian_sigma: [5, 25]
+      salt_pepper_density: [0.01, 0.05]
+      watermark_opacity: [0.2, 0.5]
+      jpeg_quality: [30, 70]
+      variants_per_doc: [3, 5]
+  inference:
+    latency_ms: 15  # 每页推理延迟
+
+# --- LayoutLMv3 多模态文档理解 ---
+layoutlmv3:
+  model_name: "microsoft/layoutlmv3-base"
+  bbox_format: ["x0", "y0", "x1", "y1", "w", "h"]
+  inference_latency_ms: 320
+  max_seq_length: 512
+
+# --- Sentence-BERT ---
+sentence_bert:
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"
+  output_dim: 768
+  pooling: "mean"
+
+# --- 文档语义缓存 ---
+cache:
+  capacity: 500         # LRU 缓存容量（文档数）
+  ttl_days: 7           # 缓存有效期
+
+# --- 时空对齐 ---
+temporal_alignment:
+  delta_seconds: 5      # 时间窗口 δ
+  system_whitelist:      # 系统进程白名单
+    - "svchost.exe"
+    - "systemd"
+    - "System"
+    - "csrss.exe"
+    - "lsass.exe"
+    - "services.exe"
+    - "wininit.exe"
+
+# --- 三维特征空间 ---
+features:
+  content_semantic_dim: 768    # 文档语义向量维度
+  behavior_pattern:
+    time_bins: 48              # 时间分布（30min 间隔）
+    operation_sequence_dim: 32 # 操作序列（IG 过滤后）
+    resource_access_dim: 16    # 资产访问频次
+    total_dim: 96              # 行为特征总维度
+  permission_context_dim: 32   # 权限上下文维度
+  total_fused_dim: 896         # 融合后总维度 (768+96+32)
+  tfidf_top_k: 20              # TF-IDF 关键词数
+
+# --- 双支路融合编码器 ---
+fusion_encoder:
+  left_branch_dim: 864   # 内容语义(768) + 行为模式(96)
+  right_branch_dim: 32   # 权限上下文
+  cross_attention_heads: 8
+  hidden_dim: 256
+  dropout: 0.1
+
+# --- IGW-Kmeans 聚类 ---
+igw_kmeans:
+  K: 3                   # 聚类数（模拟实验）
+  K_cert: 12             # 聚类数（CERT 实验，对应部门数）
+  T_max: 100             # 最大迭代次数
+  epsilon: 1.0e-4        # 收敛阈值
+  lambda_weight: 0.6     # 类内/类间散度平衡参数
+  n_runs: 10             # 独立运行次数
+
+# --- 增量更新 ---
+incremental_update:
+  eta: 0.15              # 增量学习率
+  drift_window: 30       # 漂移检测窗口（操作数）
+  theta_drift: 2.5       # Mahalanobis 距离阈值
+  full_recompute_window_days: 7  # 全量重算数据窗口

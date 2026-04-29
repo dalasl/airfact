@@ -1,0 +1,97 @@
+# ============================================
+# 全局默认配置
+# ============================================
+
+project:
+  name: "DLP-Profiling"
+  version: "1.0.0"
+  description: "基于用户数据特征画像的终端数据泄露检测方法"
+
+# --- 硬件配置 ---
+hardware:
+  gpu_ids: [0, 1]
+  num_workers: 8
+  pin_memory: true
+
+# --- 数据路径 ---
+data:
+  results_dir: "results/"
+  rvlcdip_dir: "data/rvlcdip/"
+  enron_dir: "data/enron_pdf/"
+  custom_dir: "data/custom/"
+  behavior_logs_dir: "data/behavior_logs/"
+  sequences_dir: "data/sequences/"
+  policy_dir: "data/policies/"
+  unet_pairs_dir: "data/unet_pairs/"
+
+# --- 模型路径 ---
+models:
+  unet_weights: "models/unet_denoiser.pth"
+  layoutlmv3: "microsoft/layoutlmv3-base"
+  sentence_bert: "sentence-transformers/all-MiniLM-L6-v2"
+  faiss_index: "models/faiss_index/"
+  qwen:
+    enabled: false                # 启用 LLM 分级（false 时使用随机 stub）
+    mode: "api"                   # "local" = 本地 GPU 推理, "api" = API 调用
+
+    # ================================================================
+    # 模式一: 本地 GPU 推理 (mode: "local")
+    # ================================================================
+    # 前置条件:
+    #   1. 安装量化库: pip install auto-gptq bitsandbytes accelerate
+    #   2. 下载模型权重 (首次运行自动从 HuggingFace/ModelScope 下载, 约 4.5GB)
+    #      或手动: huggingface-cli download Qwen/Qwen2.5-7B-Instruct
+    #   3. GPU 显存 >= 6GB (4-bit AWQ 量化约占 4.2GB)
+    # 推理延迟: 单次约 1.2s, 5 次自洽性采样约 5.8s (RTX 3090)
+    # MC-Dropout: 需要 mc_dropout=true, 不可用 vLLM (vLLM 默认关闭 dropout)
+    model_name: "Qwen/Qwen2.5-7B-Instruct"
+    quantization: "awq"           # "awq" / "gptq" / "none" (none 需 >= 16GB 显存)
+    device: "cuda"
+    mc_dropout: true              # 5 次独立推理用于自洽性校验
+    max_new_tokens: 512
+
+    # ================================================================
+    # 模式二: API 调用 (mode: "api")
+    # ================================================================
+    # 支持两种后端:
+    #   A. DashScope (阿里云百炼): api_backend="dashscope"
+    #      获取 API Key: https://dashscope.console.aliyun.com/
+    #      设置方式: 填入下方 api_key 或设置环境变量 DASHSCOPE_API_KEY
+    #   B. OpenAI 兼容 API: api_backend="openai"
+    #      适用于: Ollama (http://localhost:11434/v1)
+    #              vLLM  (http://localhost:8000/v1)
+    #              LiteLLM 等本地推理服务
+    #      需要: 设置 api_base_url 为推理服务地址
+    # 注意: API 模式下 MC-Dropout 通过不同 seed 参数模拟, 非真实 dropout
+    api_key: ""                   # DashScope API Key (或环境变量 DASHSCOPE_API_KEY)
+    api_model: "qwen-plus"        # DashScope: qwen-plus / qwen-turbo / qwen-max
+    api_backend: "dashscope"      # "dashscope" = 阿里云百炼, "openai" = 兼容API
+    api_base_url: ""              # 仅 openai 后端需要, 如 http://localhost:8000/v1
+    temperature: 0.7
+    top_p: 0.9
+
+# --- 实验配置 ---
+experiment:
+  seed: 42
+  n_folds: 5
+  n_runs: 10
+  log_dir: "logs/"
+  figure_dir: "figures/"
+
+# --- Velociraptor VQL 执行引擎 ---
+# 源码: velociraptor-master/ (Go 语言)
+# 通信: Python DLPPipeline → gRPC → Velociraptor Server → 终端客户端
+velociraptor:
+  enabled: false                  # 启用后通过 gRPC 对接 Velociraptor Server
+  server_address: "localhost:8001"
+  api_config: ""                  # pyvelociraptor API 配置文件路径
+                                  # 由 `velociraptor config api_client` 生成
+  version: "0.73.3"
+  source_dir: "velociraptor-master/"  # Go 源码目录
+  # 集成链路:
+  #   ch4/vql_compiler.py 生成 VQL 脚本
+  #   → src/velociraptor_bridge.py 封装为 Artifact + gRPC 提交
+  #   → Velociraptor Server 接收 (api/api.go → Query RPC)
+  #   → 分发到终端客户端 (actions/vql.go → VQLClientAction.StartQuery)
+  #   → 本地执行 VQL 检测 (accessors/ 提供文件系统/进程/注册表访问)
+  #   → 结果回传 Server → Python 桥接层接收

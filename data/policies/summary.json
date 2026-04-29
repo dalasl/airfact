@@ -1,0 +1,15 @@
+{
+  "total": 200,
+  "by_source": {
+    "NIST SP 800-53": 71,
+    "MITRE ATT&CK": 40,
+    "Sigma Rules": 30,
+    "CIS/ISO/国内法规": 30,
+    "自建终端策略": 29
+  },
+  "by_complexity": {
+    "medium": 80,
+    "simple": 70,
+    "complex": 50
+  }
+}
