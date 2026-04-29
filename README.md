@@ -8,7 +8,7 @@
 | **对应论文** | 《基于用户数据特征画像的终端数据泄露检测方法研究》(硕士学位论文, 华中科技大学, 2026) |
 | **作者/维护人** | [程庶伦] |
 | **版本** | v1.0 |
-| **编程语言** | Python 3.10 + VQL (Velociraptor Query Language) |
+| **编程语言** | Python 3.10 + Go 1.21 (Velociraptor) |
 | **最后更新** | 2026-04 |
 
 ## 2. 功能说明
@@ -108,6 +108,7 @@ dlp-profiling/
 | **sentence-transformers** | >= 2.2 | Sentence-BERT 语义编码 |
 | **faiss-gpu / faiss-cpu** | >= 1.7.4 | RAG 向量检索 |
 | **z3-solver** | >= 4.12 | 霍尔三元组形式验证 |
+| **Go** | >= 1.21 | Velociraptor 编译与部署 (完整部署时需要) |
 | **reportlab / python-docx / openpyxl** | 最新稳定版 | 文档生成与解析 |
 
 完整依赖见 `requirements.txt`。
