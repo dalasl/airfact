@@ -77,6 +77,7 @@ dlp-profiling/
 ├── data/                              # 实验数据集 (详见 data/README.md)
 ├── results/                           # 实验结果表 (13张CSV)
 ├── figures/                           # 实验结果图 (6张PDF)
+├── patent/                            # 论文相关专利材料
 ├── models/                            # 模型权重存放
 ├── tests/                             # 集成测试
 ├── velociraptor-master/               # Velociraptor源码 (VQL执行引擎参考)
