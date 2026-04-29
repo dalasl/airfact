@@ -35,9 +35,9 @@ dlp-profiling/
 ├── main.py                            # 系统入口: serve/demo/scan/monitor/report 五种模式
 ├── configs/
 │   ├── default_config.yaml            # 全局配置 (数据路径、模型、API)
-│   ├── profiling_config.yaml          # 画像参数 (K=3, 收敛阈值等)
-│   ├── grading_config.yaml            # 分级参数 (T=5, γ=1.5, k=3)
-│   └── detection_config.yaml          # 检测参数 (θ₁=0.42, θ₂=0.70, α/β/γ权重)
+│   ├── profiling_config.yaml          # 画像参数 
+│   ├── grading_config.yaml            # 分级参数
+│   └── detection_config.yaml          # 检测参数 
 ├── src/
 │   ├── server.py                      # DLPServer: 三层服务编排 + EventBus 事件驱动
 │   ├── pipeline.py                    # DLPPipeline: 简化版流水线
@@ -73,10 +73,10 @@ dlp-profiling/
 │   ├── exp_01~12_*.py                 #   12个实验 → 论文表5.3~5.15
 │   ├── train_unet.py                  #   U-Net训练 (α·MSE+(1-α)·(1-SSIM), α=0.7)
 │   ├── train_deberta.py               #   DeBERTa基线训练 (lr=2e-5, batch=16, epoch=5)
-│   └── run_all_experiments.py         #   一键运行全部实验
+│   └── run_all_experiments.py         #   运行全部实验
 ├── data/                              # 实验数据集 (详见 data/README.md)
-├── results/                           # 论文第五章实验结果 (13张CSV)
-├── figures/                           # 论文第五章图表 (6张PDF)
+├── results/                           # 实验结果表 (13张CSV)
+├── figures/                           # 实验结果图 (6张PDF)
 ├── models/                            # 模型权重存放
 ├── tests/                             # 集成测试
 ├── velociraptor-master/               # Velociraptor源码 (VQL执行引擎参考)
@@ -95,7 +95,7 @@ dlp-profiling/
 | **CPU** | 32 vCPU (服务器), 8 vCPU (终端VM) |
 | **内存** | 128 GB (服务器), 8 GB (终端VM) |
 | **GPU** | NVIDIA RTX 3090 24GB (Qwen 4-bit 约4.2GB + LayoutLMv3 约1.8GB) |
-| **存储** | >= 2 GB (代码+数据集, 不含unet_pairs) |
+| **存储** | >= 8 GB (代码+数据集, 不含unet_pairs) |
 
 ### 3.2 软件依赖
 
