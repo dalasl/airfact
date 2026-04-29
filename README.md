@@ -446,32 +446,8 @@ velociraptor --config client.config.yaml client -v
 
 - 检测率指标 (F₁/Precision) 受随机种子和 LLM 推理温度影响, 允许 ±2% 波动
 - MC-Dropout 自洽性校验结果受 dropout mask 随机性影响, 一致性比率允许 ±3% 波动
-- 系统延迟受硬件规格和 GPU 负载影响, 不同设备上的绝对延迟可能与论文数据不同
-- 所有实验使用随机种子 42, 确保在相同环境下可复现
 
-## 6. FAQ
 
-**Q: 运行 `python main.py demo` 报 `ModuleNotFoundError`**
-A: 缺少依赖包。执行 `pip install xxx` 安装对应模块, 或完整安装: `pip install numpy scipy pandas scikit-learn pyyaml tqdm z3-solver python-docx openpyxl reportlab PyPDF2 Pillow pymupdf`
-
-**Q: Demo 输出中 risk 值与论文不完全一致**
-A: 正常现象。CPU-only 模式使用随机 stub 替代 LLM, 风险评分为近似值。完整精度需 GPU + 真实模型权重。
-
-**Q: `data/unet_pairs/` 目录为空, 如何重建?**
-A: 执行 `python src/data_pipeline/noise_augmentor.py --clean-dir data/rvlcdip --output-dir data/unet_pairs --seed 42`。需约 40 分钟, 生成 2.4GB 数据。
-
-**Q: 没有 GPU 能否运行实验?**
-A: Quick Start (Demo/scan/monitor) 可在 CPU 上运行。完整实验复现需要 GPU (RTX 3090 24GB 或以上) 用于 Qwen2.5-7B 推理和 LayoutLMv3 编码。
-
-**Q: 没有 Velociraptor 能否运行?**
-A: 可以。未部署 Velociraptor 时系统正常运行, 生成的 VQL 规则仅本地缓存。Velociraptor 仅在完整部署模式下用于将规则下发到终端执行。
-
-**Q: 如何使用 DashScope API 替代本地 Qwen?**
-A: 编辑 `configs/default_config.yaml`, 设置 `models.qwen.enabled: true`, `mode: "api"`, 填入 `api_key`。详见 `docs/DEPLOYMENT_GUIDE.md`。
-
-**Q: 如何调整检测灵敏度?**
-A: 编辑 `configs/detection_config.yaml`, 降低 `theta_1` (ALERT 阈值) 和 `theta_2` (BLOCK 阈值) 使检测更灵敏, 或调整 `alpha/beta/gamma` 权重改变三维偏离度的贡献比例。
-
-## 7. 许可证
+## 6. 许可证
 
 本代码仅用于学术研究目的。未经授权不得用于商业用途。
