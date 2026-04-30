@@ -52,7 +52,7 @@ COPY main.py setup.py requirements.txt ./
 RUN pip install --no-cache-dir -e .
 
 # 创建数据和模型挂载点
-VOLUME ["/app/data", "/app/models", "/app/experiments", "/app/logs"]
+VOLUME ["/app/data", "/app/models", "/app/results", "/app/logs"]
 
 # 暴露端口
 EXPOSE 8080 50051 6006
