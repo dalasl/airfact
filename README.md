@@ -419,20 +419,20 @@ velociraptor --config client.config.yaml client -v
 
 ### 5.1 结果文件 → 论文图表对应
 
-| 文件 (results/) | 论文表格 | 内容 | 关键结果 |
+| 文件 (results/) | 论文表格 | 内容
 |-----------------|----------|------|----------|
-| `tab_e2e_detection.csv` | 表 5.4 | 三种方法端到端检测对比 | F₁=0.942, FPR=4.4% |
-| `tab_channel_detection.csv` | 表 5.5 | 四种泄露通道分通道检测效果 | USB 精确率 97.9% |
-| `tab_resilience.csv` | 表 5.6 | 角色迁移场景 6 个时段性能演化 | 迁移后恢复至精确率 92.7% |
-| `tab_cluster_compare.csv` | 表 5.7 | 4 种聚类方法质量对比 | SC=0.68, CH=287.5 |
-| `tab_feature_ablation.csv` | 表 5.8 | 10 组特征维度消融实验 | 三维完整 F₁=0.950 |
-| `tab_grading_compare.csv` | 表 5.9 | 3 种分级方法多基线对比 | F₁=0.950, FPR=5% |
-| `tab_format_grading.csv` | 表 5.10 | 按文档格式分类的分级 F1 | 水印 PDF F₁=0.93 |
-| `tab_context_ablation.csv` | 表 5.11 | 上下文增强消融实验 | 画像注入贡献最大 |
-| `tab_selfconsistency.csv` | 表 5.12 | 自洽性校验采样次数 T 分析 | T=5 最优 |
-| `tab_gamma_tradeoff.csv` | 表 5.13 | 不确定性阈值 γ 权衡 | γ=1.5, 复核率 14% |
-| `tab_param_k.csv` | 表 5.14 | RAG 召回案例数 k 敏感性 | k=3 最优 |
-| `tab_rule_quality.csv` | 表 5.15 | 3 种方法规则生成质量对比 | 语法合规 99.4%, 冲突 0.3% |
+| `tab_e2e_detection.csv` | 表 5.4 | 三种方法端到端检测对比 | 
+| `tab_channel_detection.csv` | 表 5.5 | 四种泄露通道分通道检测效果 | 
+| `tab_resilience.csv` | 表 5.6 | 角色迁移场景 6 个时段性能演化 | 
+| `tab_cluster_compare.csv` | 表 5.7 | 4 种聚类方法质量对比 | 
+| `tab_feature_ablation.csv` | 表 5.8 | 10 组特征维度消融实验 | 
+| `tab_grading_compare.csv` | 表 5.9 | 3 种分级方法多基线对比 |
+| `tab_format_grading.csv` | 表 5.10 | 按文档格式分类的分级 F1 | 
+| `tab_context_ablation.csv` | 表 5.11 | 上下文增强消融实验 | 
+| `tab_selfconsistency.csv` | 表 5.12 | 自洽性校验采样次数 T 分析 |
+| `tab_gamma_tradeoff.csv` | 表 5.13 | 不确定性阈值 γ 权衡 | 
+| `tab_param_k.csv` | 表 5.14 | RAG 召回案例数 k 敏感性 | 
+| `tab_rule_quality.csv` | 表 5.15 | 3 种方法规则生成质量对比 | 
 
 | 文件 (figures/) | 论文图号 | 内容 |
 |-----------------|----------|------|
