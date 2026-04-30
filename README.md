@@ -96,7 +96,7 @@ dlp-profiling/
 | **CPU** | 32 vCPU (服务器), 8 vCPU (终端VM) |
 | **内存** | 128 GB (服务器), 8 GB (终端VM) |
 | **GPU** | NVIDIA RTX 3090 24GB (Qwen 4-bit 约4.2GB + LayoutLMv3 约1.8GB) |
-| **存储** | >= 8 GB (代码+数据集, 不含unet_pairs) |
+| **存储** | >= 8 GB |
 
 ### 3.2 软件依赖
 
