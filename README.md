@@ -419,7 +419,7 @@ velociraptor --config client.config.yaml client -v
 ### 5.1 结果文件 → 论文图表对应
 
 | 文件 (results/) | 论文表格 | 内容|
-|-----------------|----------|------|----------|
+|-----------------|----------|------
 | `tab_e2e_detection.csv` | 表 5.4 | 三种方法端到端检测对比 | 
 | `tab_channel_detection.csv` | 表 5.5 | 四种泄露通道分通道检测效果 | 
 | `tab_resilience.csv` | 表 5.6 | 角色迁移场景 6 个时段性能演化 | 
