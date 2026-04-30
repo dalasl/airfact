@@ -83,7 +83,6 @@ dlp-profiling/
 ├── velociraptor-master/               # Velociraptor源码 (VQL执行引擎参考)
 └── docs/
     ├── DEPLOYMENT_GUIDE.md            # 单机API部署指南 (含DashScope/Ollama配置)
-    └── REPRODUCIBILITY.md             # 可复现性声明
 ```
 
 ## 3. 环境说明
