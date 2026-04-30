@@ -4,17 +4,17 @@
 # ============================================
 #
 # 架构：
-#   ┌─────────────┐  ┌──────────────┐  ┌────────────────┐
-#   │  dlp-server  │  │ velociraptor │  │  tensorboard   │
-#   │ (主检测服务) │  │ (VQL 执行端) │  │ (实验可视化)   │
-#   └──────┬───────┘  └──────┬───────┘  └────────────────┘
+#   ┌─────────────┐  ┌──────────────┐  
+#   │  dlp-server  │  │ velociraptor │  
+#   │ (主检测服务) │  │ (VQL 执行端) │  
+#   └──────┬───────┘  └──────┬───────┘  
 #          │                 │
 #     ┌────▼─────────────────▼────┐
 #     │       dlp-network         │
 #     └───────────────────────────┘
 #
 # 使用方式：
-#   docker-compose up -d              # 启动所有服务
+#   docker-compose up -d              # 启动检测服务
 #   docker-compose up dlp-server      # 仅启动检测服务
 #   docker-compose run dlp-server python main.py demo  # 运行演示
 #   docker-compose logs -f dlp-server # 查看日志
