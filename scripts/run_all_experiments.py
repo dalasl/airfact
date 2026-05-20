@@ -2,7 +2,7 @@
 """
 一键运行全部实验
 
-按论文第5章顺序运行所有 12 个实验脚本，收集结果到 results/。
+按论文第5章顺序运行所有 11 个实验脚本，收集结果到 results/。
 
 实验清单:
   exp_01: 聚类质量对比 (表5-6)
@@ -16,12 +16,11 @@
   exp_09: 参数敏感性分析 (表5-14, 5-15)
   exp_10: 规则生成质量 (表5-16)
   exp_11: 端到端检测对比 (表5-4, 5-5)
-  exp_12: 系统性能评估 (表5-17)
 
 用法:
     python scripts/run_all_experiments.py                  # 运行全部
     python scripts/run_all_experiments.py --stage profiling # 仅运行画像实验
-    python scripts/run_all_experiments.py --exp 1 5 12      # 运行指定实验
+    python scripts/run_all_experiments.py --exp 1 5 11      # 运行指定实验
 """
 
 import argparse
@@ -45,7 +44,6 @@ EXPERIMENTS = {
     9: ("exp_09_parameter_sensitivity", "参数敏感性分析 (表5-14,15)"),
     10: ("exp_10_rule_generation_quality", "规则生成质量 (表5-16)"),
     11: ("exp_11_e2e_detection", "端到端检测对比 (表5-4,5)"),
-    12: ("exp_12_system_performance", "系统性能评估 (表5-17)"),
 }
 
 STAGE_MAP = {
@@ -53,7 +51,6 @@ STAGE_MAP = {
     "grading": [5, 6, 7, 8],
     "rule": [10],
     "e2e": [11],
-    "perf": [12],
     "sensitivity": [9],
 }
 
@@ -62,7 +59,7 @@ def run_experiment(exp_id, output_dir):
     """运行单个实验脚本"""
     module_name, description = EXPERIMENTS[exp_id]
     print(f"\n{'=' * 60}")
-    print(f"[{exp_id:02d}/12] {description}")
+    print(f"[{exp_id:02d}/11] {description}")
     print(f"{'=' * 60}")
 
     script_path = os.path.join(os.path.dirname(__file__), f"{module_name}.py")
@@ -108,7 +105,7 @@ def main():
                         choices=list(STAGE_MAP.keys()),
                         help="运行指定阶段")
     parser.add_argument("--exp", type=int, nargs="+", default=None,
-                        help="运行指定实验编号 (1-12)")
+                        help="运行指定实验编号 (1-11)")
     parser.add_argument("--seed", type=int, default=42,
                         help="全局随机种子")
     args = parser.parse_args()

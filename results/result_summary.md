@@ -53,9 +53,8 @@
 
 | 文件 | 论文图号 | 内容 |
 |------|----------|------|
-| `fig_channel_prec.pdf` | 图 5.1 | 各泄露通道检测精确率对比 |
-| `fig_channel_fpr.pdf` | 图 5.2 | 各泄露通道检测误报率对比 |
-| `fig_resilience.pdf` | 图 5.3 | 角色迁移场景性能演化趋势 |
-| `fig_ablation.pdf` | 图 5.4 | 上下文增强消融实验结果对比 |
-| `fig_param_T.pdf` | 图 5.5 | 采样次数 T 参数敏感性分析 |
-| `fig_param_k.pdf` | 图 5.6 | RAG 召回数 k 参数敏感性分析 |
+| `fig_channel_fpr.pdf` | 图 5.1 | 各泄露通道检测误报率对比 |
+| `fig_resilience.pdf` | 图 5.2 | 角色迁移场景性能演化趋势 |
+| `fig_ablation.pdf` | 图 5.3 | 上下文增强消融实验结果对比 |
+| `fig_param_T.pdf` | 图 5.4| 采样次数 T 参数敏感性分析 |
+| `fig_param_k.pdf` | 图 5.5 | RAG 召回数 k 参数敏感性分析 |

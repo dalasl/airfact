@@ -40,6 +40,8 @@ dlp-profiling/
 │   └── detection_config.yaml          # 检测参数 
 ├── src/
 │   ├── server.py                      # DLPServer: 三层服务编排 + EventBus 事件驱动
+│   ├── api_server.py                  # FastAPI 服务端 API: C/S 分离部署的网络层
+│   ├── api_client.py                  # 终端代理远程客户端: HTTP/WebSocket 通信
 │   ├── pipeline.py                    # DLPPipeline: 简化版流水线
 │   ├── event_bus.py                   # 事件总线: FILE_DETECTED → GRADING_DONE → RULE_PUSHED
 │   ├── terminal_agent.py              # 终端代理: 文件监控 (watchdog) + 进程→通道识别
@@ -70,19 +72,19 @@ dlp-profiling/
 │   ├── baselines/                     # 对比基线 (静态规则/DeBERTa/Presidio)
 │   └── utils/                         # 工具 (日志/指标/数据加载)
 ├── scripts/                           # 实验脚本
-│   ├── exp_01~12_*.py                 #   12个实验 → 论文表5.3~5.15
+│   ├── exp_01~11_*.py                 #   11个实验 → 论文表5.4~5.15
 │   ├── train_unet.py                  #   U-Net训练 (α·MSE+(1-α)·(1-SSIM), α=0.7)
 │   ├── train_deberta.py               #   DeBERTa基线训练 (lr=2e-5, batch=16, epoch=5)
 │   └── run_all_experiments.py         #   运行全部实验
 ├── data/                              # 实验数据集 (详见 data/README.md)
-├── results/                           # 实验结果表 (13张CSV)
-├── figures/                           # 实验结果图 (6张PDF)
+├── results/                           # 实验结果表 (12张CSV)
+├── figures/                           # 实验结果图 (5张PDF)
 ├── patent/                            # 论文相关专利材料
 ├── models/                            # 模型权重存放
 ├── tests/                             # 集成测试
 ├── velociraptor-master/               # Velociraptor源码 (VQL执行引擎参考)
 └── docs/
-    ├── DEPLOYMENT_GUIDE.md            # 单机API部署指南 (含DashScope/Ollama配置)
+    ├── DEPLOYMENT_GUIDE.md            # 部署指南 (单机API/C/S分离/DashScope/Ollama配置)
 ```
 
 ## 3. 环境说明
@@ -108,6 +110,7 @@ dlp-profiling/
 | **sentence-transformers** | >= 2.2 | Sentence-BERT 语义编码 |
 | **faiss-gpu / faiss-cpu** | >= 1.7.4 | RAG 向量检索 |
 | **z3-solver** | >= 4.12 | 霍尔三元组形式验证 |
+| **fastapi + uvicorn** | >= 0.104 / >= 0.24 | C/S 分离部署 API 层 |
 | **Go** | >= 1.21 | Velociraptor 编译与部署 (完整部署时需要) |
 | **reportlab / python-docx / openpyxl** | 最新稳定版 | 文档生成与解析 |
 
@@ -175,7 +178,7 @@ python main.py demo
 - `FileNotFoundError: configs/default_config.yaml`: 未在项目根目录执行, 检查 `cd` 路径
 - `RuntimeError: CUDA not available`: 正常现象, CPU-only 模式自动回退, 不影响 Demo
 
-**其他单机命令**:
+**其他命令**:
 
 ```bash
 # 扫描单个文件
@@ -183,6 +186,10 @@ python main.py scan report.pdf --user alice --action read --json
 
 # 持续监控目录 (持久运行, Ctrl+C 停止)
 python main.py monitor --watch ./data/custom --interval 5
+
+# C/S 分离部署 (详见阶段 5b)
+python main.py serve-api --port 8900                              # 服务端 (GPU)
+python main.py agent --server http://ip:8900 --watch ./data       # 终端代理 (VM)
 
 # 查看实验结果摘要
 python main.py report
@@ -199,7 +206,7 @@ python main.py report
 阶段 1  环境准备       ← 安装 GPU 版依赖 + 下载模型
 阶段 2  数据验证       ← 确认已包含的数据集完整
 阶段 3  模型训练       ← U-Net 去噪 + DeBERTa 基线 (可选)
-阶段 4  实验运行       ← 12 个实验脚本
+阶段 4  实验运行       ← 11 个实验脚本
 阶段 5  系统部署       ← 持久化服务 + Velociraptor 对接
 ```
 
@@ -288,7 +295,7 @@ python scripts/train_deberta.py \
 **前置条件**: 阶段 1 + 阶段 3 完成（或已有权重）
 
 ```bash
-# 一键运行全部 12 个实验
+# 一键运行全部 11 个实验
 python scripts/run_all_experiments.py --config configs/default_config.yaml
 
 # 或逐个运行：
@@ -332,7 +339,81 @@ python main.py serve \
 #   Ctrl+C 或 SIGTERM 优雅退出
 ```
 
-##### 5b. 论文实验环境说明（1 Server + 3 VM）
+##### 5b. C/S 分离部署（论文图 4-3 架构）
+
+论文图 4-3 描述的"服务端(GPU) + 多终端代理(VM)"独立部署模式，通过 FastAPI 网络层实现：
+
+```
+┌──────────────────────────────┐           HTTP/WS            ┌──────────────────────┐
+│  GPU 服务器 (Ubuntu 22.04)    │  ◄─────────────────────────►  │  终端 VM-1 (Windows)  │
+│  python main.py serve-api    │   POST /api/v1/events         │  python main.py agent │
+│  ├─ FastAPI (api_server.py)  │   ──────────────────────────►  │  ├─ FileSystemWatcher │
+│  │  ├─ /api/v1/events        │   裁决(VerdictResponse)        │  ├─ ProcessWatcher    │
+│  │  ├─ /api/v1/rules/{id}    │   ◄──────────────────────────  │  ├─ VQLExecutor       │
+│  │  └─ /api/v1/ws/{id}       │   WS 规则推送(rule_push)       │  └─ RemoteClient      │
+│  ├─ PerceptionService (ch2)  │   ──────────────────────────►  │      (api_client.py)  │
+│  ├─ CognitionService  (ch3)  │                                └──────────────────────┘
+│  ├─ ExecutionService  (ch4)  │                                ┌──────────────────────┐
+│  └─ VelociraptorBridge       │  ◄─────────────────────────►  │  终端 VM-2 (Windows)  │
+└──────────────────────────────┘                                └──────────────────────┘
+```
+
+**服务端启动**（GPU 服务器）：
+
+```bash
+# 基本启动
+python main.py serve-api --host 0.0.0.0 --port 8900 --device cuda
+
+# 带 API Token 认证
+python main.py serve-api --host 0.0.0.0 --port 8900 --api-token "your-secret-token"
+
+# 启动后自动提供 Swagger 文档: http://<server-ip>:8900/docs
+```
+
+**终端代理启动**（各 Windows VM）：
+
+```bash
+# VM-1: 行政人员
+python main.py agent \
+    --server http://192.168.1.100:8900 \
+    --user vm1_alice \
+    --watch C:/Users/alice/Documents \
+    --interval 5
+
+# VM-2: 财务人员（启用 WebSocket 实时推送）
+python main.py agent \
+    --server http://192.168.1.100:8900 \
+    --user vm2_bob \
+    --watch C:/Users/bob/Documents \
+    --ws
+
+# VM-3: 运维管理员（带 Token 认证）
+python main.py agent \
+    --server http://192.168.1.100:8900 \
+    --user vm3_charlie \
+    --watch C:/Admin \
+    --api-token "your-secret-token"
+```
+
+**API 端点**：
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| POST | `/api/v1/agents/register` | Agent 注册（含主机名、OS、监控目录） |
+| POST | `/api/v1/agents/heartbeat` | Agent 心跳保活 |
+| POST | `/api/v1/events` | 文件事件上报 → 三层检测 → 返回裁决 |
+| GET | `/api/v1/rules/{agent_id}` | 拉取待下发 VQL 规则 |
+| WebSocket | `/api/v1/ws/{agent_id}` | 双向通信: 规则实时推送 + 事件上报 |
+| GET | `/api/v1/status` | 系统状态（用户数、Agent 数、事件计数） |
+| GET | `/api/v1/agents` | 列出所有已注册 Agent 状态 |
+| GET | `/docs` | Swagger UI 自动文档 |
+
+**通信机制**：
+- **事件上报**：Agent 检测到敏感文件操作 → Base64 编码文件内容 → POST 到服务端 → 服务端三层检测 → 返回 VerdictResponse（含 risk_score、sensitivity_level、response_action、vql_script）
+- **规则下发（轮询模式）**：Agent 心跳时附带 GET 拉取待下发 VQL 规则 → 加载到本地 VQLExecutor
+- **规则下发（WebSocket 模式）**：`--ws` 参数启用后，服务端生成规则时实时推送到 Agent，无需轮询
+
+##### 5c. 论文实验环境说明（1 Server + 3 VM）
 
 论文第五章实验基于以下架构设计：
 
@@ -392,7 +473,9 @@ velociraptor --config client.config.yaml client -v
 
 | 模式 | 命令 | 说明 | 持久化 |
 |------|------|------|--------|
-| `serve` | `python main.py serve --watch DIR` | 完整三层检测服务 + Velociraptor | 是 |
+| `serve` | `python main.py serve --watch DIR` | 完整三层检测服务 + Velociraptor (单进程) | 是 |
+| `serve-api` | `python main.py serve-api --port 8900` | C/S 模式服务端: FastAPI + 三层检测 (GPU 服务器) | 是 |
+| `agent` | `python main.py agent --server URL --watch DIR` | C/S 模式终端代理: 远程上报 + 本地 VQL 执行 | 是 |
 | `demo` | `python main.py demo` | 5 条预设事件演示完整流程 | 否 |
 | `scan` | `python main.py scan FILE --user USER` | 扫描单个文件输出检测结果 | 否 |
 | `monitor` | `python main.py monitor --watch DIR` | 轻量级目录监控（无 Velociraptor） | 是 |
@@ -435,12 +518,11 @@ velociraptor --config client.config.yaml client -v
 
 | 文件 (figures/) | 论文图号 | 内容 |
 |-----------------|----------|------|
-| `fig_channel_prec.pdf` | 图 5.1 | 各通道检测精确率 |
-| `fig_channel_fpr.pdf` | 图 5.2 | 各通道检测误报率 |
-| `fig_resilience.pdf` | 图 5.3 | 角色迁移性能演化 |
-| `fig_ablation.pdf` | 图 5.4 | 上下文消融对比 |
-| `fig_param_T.pdf` | 图 5.5 | 采样次数 T 敏感性 |
-| `fig_param_k.pdf` | 图 5.6 | RAG 参数 k 敏感性 |
+| `fig_channel_fpr.pdf` | 图 5.1 | 各通道检测误报率 |
+| `fig_resilience.pdf` | 图 5.2 | 角色迁移性能演化 |
+| `fig_ablation.pdf` | 图 5.3 | 上下文消融对比 |
+| `fig_param_T.pdf` | 图 5.4 | 采样次数 T 敏感性 |
+| `fig_param_k.pdf` | 图 5.5 | RAG 参数 k 敏感性 |
 
 ### 5.2 结果波动说明
 

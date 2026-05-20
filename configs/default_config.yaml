@@ -95,3 +95,17 @@ velociraptor:
   #   → 分发到终端客户端 (actions/vql.go → VQLClientAction.StartQuery)
   #   → 本地执行 VQL 检测 (accessors/ 提供文件系统/进程/注册表访问)
   #   → 结果回传 Server → Python 桥接层接收
+
+# --- C/S 部署配置 ---
+# 启用 serve-api 模式时，在 DLPServer 之上提供 FastAPI 网络接口
+# 服务端: python main.py serve-api --host 0.0.0.0 --port 8900
+# 终端侧: python main.py agent --server http://<ip>:8900 --watch <dir>
+api_server:
+  host: "0.0.0.0"
+  port: 8900
+  api_token: ""                   # 设置后所有 Agent 需提供此 token 注册
+  cors_origins: ["*"]             # 生产环境应限制
+  # 通信模式:
+  #   HTTP REST: Agent → POST /api/v1/events → Server 三层检测 → VerdictResponse
+  #   WebSocket: 规则实时推送 + 可选事件上报
+  #   轮询:     Agent → GET /api/v1/rules/{agent_id} → 拉取待下发规则

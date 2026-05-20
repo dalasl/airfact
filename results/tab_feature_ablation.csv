@@ -6,6 +6,4 @@ Content+Behavior,864,0.48,0.03,0.843,0.017
 Content+Permission,800,0.59,0.02,0.887,0.013
 Behavior+Permission,128,0.61,0.02,0.901,0.012
 No U-Net denoising,896,0.61,0.03,0.906,0.016
-Text docs only,896,0.64,0.02,0.921,0.013
-Scanned docs only,896,0.52,0.04,0.847,0.022
-Full 3D (Proposed),896,0.68,0.02,0.950,0.010
+Full 3D (Proposed),896,0.68,0.02,0.95,0.01

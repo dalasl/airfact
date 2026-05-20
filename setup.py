@@ -40,6 +40,11 @@ setup(
             "auto-gptq>=0.6.0",
             "bitsandbytes>=0.41.0",
         ],
+        "api": [
+            "fastapi>=0.104.0",
+            "uvicorn[standard]>=0.24.0",
+            "websockets>=12.0",
+        ],
         "velociraptor": [
             "pyvelociraptor>=0.1.0",
         ],

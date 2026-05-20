@@ -1,6 +1,8 @@
-# 单机部署与 API 端到端演示指南
+# 部署指南
 
-本文档面向**无 GPU 单机环境**，通过调用 Qwen API（DashScope / OpenAI 兼容）完成文件敏感度分类分级，并运行端到端数据泄露检测 Demo。
+本文档涵盖两种部署模式：
+- **单机 API 部署**：无 GPU 单机环境，通过 Qwen API 完成分级推理
+- **C/S 分离部署**：GPU 服务器 + 多终端代理独立部署（论文图 4-3 架构）
 
 ---
 
@@ -13,8 +15,9 @@
 5. [扫描单个文件](#5-扫描单个文件)
 6. [目录持续监控](#6-目录持续监控)
 7. [启动完整检测服务](#7-启动完整检测服务)
-8. [验证 LLM 分类效果](#8-验证-llm-分类效果)
-9. [常见问题排查](#9-常见问题排查)
+8. [C/S 分离部署](#8-cs-分离部署)
+9. [验证 LLM 分类效果](#9-验证-llm-分类效果)
+10. [常见问题排查](#10-常见问题排查)
 
 ---
 
@@ -304,9 +307,157 @@ nohup python main.py serve --device cpu > logs/server.log 2>&1 &
 
 ---
 
-## 8. 验证 LLM 分类效果
+## 8. C/S 分离部署
 
-### 8.1 快速验证 API 连通性
+### 概述
+
+论文图 4-3 描述了"GPU 服务器 + 多终端代理"的分离部署架构。代码通过 FastAPI 网络层实现，终端代理通过 HTTP/WebSocket 与服务端通信。
+
+```
+┌────────────────────────────────┐         HTTP/WS         ┌─────────────────────────┐
+│   GPU 服务器                    │ ◄─────────────────────► │   终端 VM (Windows)      │
+│   python main.py serve-api     │  POST /api/v1/events    │   python main.py agent   │
+│                                │  ─────────────────────► │                          │
+│   DLPServer (三层检测)          │  VerdictResponse        │   TerminalAgent          │
+│   ├── PerceptionService (ch2)  │  ◄───────────────────── │   ├── FileSystemWatcher  │
+│   ├── CognitionService  (ch3)  │  WS rule_push           │   ├── ProcessWatcher     │
+│   ├── ExecutionService  (ch4)  │  ─────────────────────► │   ├── VQLExecutor        │
+│   └── FastAPI (api_server.py)  │                         │   └── RemoteClient       │
+└────────────────────────────────┘                         └─────────────────────────┘
+```
+
+### 8.1 安装额外依赖
+
+```bash
+pip install fastapi uvicorn[standard] pydantic websockets
+```
+
+> 这些依赖已包含在 `requirements.txt` 中。
+
+### 8.2 服务端启动
+
+```bash
+# 基本启动（GPU 服务器，监听所有网卡）
+python main.py serve-api --host 0.0.0.0 --port 8900 --device cuda
+
+# CPU 模式（API 推理，无需 GPU）
+python main.py serve-api --host 0.0.0.0 --port 8900 --device cpu
+
+# 带 Token 认证（生产环境推荐）
+python main.py serve-api --host 0.0.0.0 --port 8900 --api-token "your-secret-token"
+```
+
+启动后：
+- Swagger UI 文档: `http://<server-ip>:8900/docs`
+- 系统状态: `http://<server-ip>:8900/api/v1/status`
+
+### 8.3 终端代理启动
+
+```bash
+# 基本启动
+python main.py agent \
+    --server http://192.168.1.100:8900 \
+    --user vm2_bob \
+    --watch C:/Users/bob/Documents
+
+# 启用 WebSocket 实时规则推送
+python main.py agent \
+    --server http://192.168.1.100:8900 \
+    --user vm2_bob \
+    --watch C:/Users/bob/Documents \
+    --ws
+
+# 带 Token 认证 + 自定义 Agent ID
+python main.py agent \
+    --server http://192.168.1.100:8900 \
+    --agent-id agent_vm2_bob \
+    --user vm2_bob \
+    --watch C:/Users/bob/Documents \
+    --api-token "your-secret-token" \
+    --interval 3
+```
+
+### 8.4 API 端点一览
+
+| 方法 | 路径 | 功能 |
+|------|------|------|
+| POST | `/api/v1/agents/register` | Agent 注册 |
+| POST | `/api/v1/agents/heartbeat` | 心跳保活 + 告知待拉规则数 |
+| POST | `/api/v1/events` | 文件事件上报 → 三层检测 → 返回裁决 |
+| GET | `/api/v1/rules/{agent_id}` | 拉取待下发 VQL 规则 |
+| WebSocket | `/api/v1/ws/{agent_id}` | 双向通信（规则推送 + 事件上报） |
+| GET | `/api/v1/status` | 系统状态 |
+| GET | `/api/v1/agents` | 已注册 Agent 列表 |
+
+### 8.5 通信流程
+
+**事件上报流程**：
+```
+Agent (FileSystemWatcher 检测到文件变动)
+  → RemoteClient.report_event()
+    → POST /api/v1/events (file_content Base64 编码)
+      → DLPServer.process_file_event()
+        → PerceptionService → CognitionService → ExecutionService
+      ← VerdictResponse (action, risk_score, sensitivity_level, vql_script)
+  ← Agent 根据 response_action 执行本地动作
+```
+
+**规则下发流程（轮询模式）**：
+```
+Server (ExecutionService 生成 VQL 规则)
+  → EventBus RULE_PUSHED → AgentManager 存入 pending_rules 队列
+Agent (心跳线程定期执行)
+  → GET /api/v1/rules/{agent_id}
+  ← PendingRulesResponse (rules[])
+  → VQLExecutor.load_rule() 加载到本地执行引擎
+```
+
+**规则下发流程（WebSocket 模式）**：
+```
+Server (ExecutionService 生成 VQL 规则)
+  → EventBus RULE_PUSHED → AgentManager.push_rule()
+    → WebSocket send_json({type: "rule_push", data: rule})
+Agent (WebSocket 接收线程)
+  → _handle_ws_message() → VQLExecutor.load_rule()
+```
+
+### 8.6 论文实验部署示例
+
+复现论文第五章实验（1 台 GPU 服务器 + 3 台 Windows VM）：
+
+```bash
+# === 服务器 (Ubuntu 22.04, RTX 3090) ===
+python main.py serve-api --host 0.0.0.0 --port 8900 --device cuda
+
+# === VM-1: 行政人员 (Windows 10) ===
+python main.py agent --server http://192.168.1.100:8900 \
+    --user vm1_alice --watch C:/Users/alice/Documents
+
+# === VM-2: 财务人员 (Windows 10) ===
+python main.py agent --server http://192.168.1.100:8900 \
+    --user vm2_bob --watch C:/Users/bob/Documents --ws
+
+# === VM-3: 运维管理员 (Windows 10) ===
+python main.py agent --server http://192.168.1.100:8900 \
+    --user vm3_charlie --watch C:/Admin
+```
+
+### 8.7 与单进程模式的对比
+
+| 维度 | `serve`（单进程） | `serve-api` + `agent`（C/S） |
+|------|------------------|------------------------------|
+| 部署方式 | Agent 与 Server 同进程 | Agent 和 Server 独立部署 |
+| 通信方式 | Python 函数回调 | HTTP REST / WebSocket |
+| 终端数 | 1 台 | 多台（每台运行一个 agent） |
+| GPU 需求 | 服务器需要 GPU | 仅服务器需要 GPU，终端无需 |
+| 适用场景 | 开发测试、Demo 演示 | 论文实验、生产部署 |
+| API 文档 | 无 | 自动生成 Swagger UI (`/docs`) |
+
+---
+
+## 9. 验证 LLM 分类效果
+
+### 9.1 快速验证 API 连通性
 
 ```python
 # test_api.py — 单独验证 Qwen API 是否正常
@@ -343,7 +494,7 @@ for seed in [42, 43, 44]:
 python test_api.py
 ```
 
-### 8.2 端到端分类效果对比
+### 9.2 端到端分类效果对比
 
 在 Demo 输出中，关注以下字段验证 LLM 分类质量：
 
@@ -354,7 +505,7 @@ python test_api.py
 | `risk` | 最终风险分数 | 综合用户画像+环境+敏感度 |
 | `vql` | 生成的 VQL 检测规则 | 仅 ALERT/BLOCK 时生成 |
 
-### 8.3 API 模式 vs Stub 模式对比
+### 9.3 API 模式 vs Stub 模式对比
 
 ```bash
 # Stub 模式（qwen.enabled=false）— 随机分级，用于功能测试
@@ -370,7 +521,7 @@ API 模式下，LLM 会根据文件内容、用户角色、操作类型综合判
 
 ---
 
-## 9. 常见问题排查
+## 10. 常见问题排查
 
 ### Q1: `openai` 库未安装
 
